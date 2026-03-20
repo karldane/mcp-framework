@@ -1,0 +1,57 @@
+Functional Source License, Version 1.1, ALv2 Future License
+
+Copyright 2026 Karl Dane
+
+The Functional Source License, Version 1.1, ALv2 Future License (the "License") is a software license that allows you to use, modify, and distribute the software under certain conditions.
+
+TERMS AND CONDITIONS
+
+1. GRANT OF RIGHTS
+
+Subject to the conditions and limitations of this License, the Licensor grants you a non-exclusive, worldwide, non-transferable, royalty-free license to:
+
+(a) Use the Software for any purpose, including commercial purposes
+(b) Modify the Software and create derivative works
+(c) Distribute copies of the Software and derivative works
+
+2. CONDITIONS
+
+The above grant is subject to the following conditions:
+
+(a) You must include a copy of this License in any distribution of the Software
+(b) You must retain all copyright and license notices in the Software
+(c) Any modifications must be documented and made available under this same License
+
+3. CHANGE LICENSE
+
+On the second anniversary of the date this License is applied to the Software (the "Change Date"), the rights granted under Section 1 will convert to the Apache License, Version 2.0 (the "ALv2").
+
+Before the Change Date, you may not use the Software under the ALv2 terms. After the Change Date, this License will no longer apply and the Software will be governed solely by the ALv2.
+
+4. TERMINATION
+
+This License automatically terminates if you fail to comply with its terms. Upon termination, you must cease all use and distribution of the Software.
+
+5. DISCLAIMER
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+6. LIMITATION OF LIABILITY
+
+IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+APACHE LICENSE, VERSION 2.0 (Reference)
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
