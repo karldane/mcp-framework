@@ -24,7 +24,8 @@ type ToolHandler interface {
 
 	// GetEnforcerProfile returns the self-reported safety metadata for the tool
 	// This profile is transmitted during the tools/list handshake via annotations
-	GetEnforcerProfile() EnforcerProfile
+	// Return nil to opt out of safety enforcement
+	GetEnforcerProfile() *EnforcerProfile
 }
 
 // Config holds server configuration
@@ -98,9 +99,9 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]i
 		return "", fmt.Errorf("tool '%s' not found", name)
 	}
 
-	// Check if write tools are disabled and this is a write tool
+	// Check if write tools are disabled and this is a write tool (skip if no profile)
 	profile := handler.GetEnforcerProfile()
-	if !s.writeEnabled && (profile.ImpactScope == ImpactWrite || profile.ImpactScope == ImpactDelete || profile.ImpactScope == ImpactAdmin) {
+	if profile != nil && !s.writeEnabled && (profile.ImpactScope == ImpactWrite || profile.ImpactScope == ImpactDelete || profile.ImpactScope == ImpactAdmin) {
 		return "", fmt.Errorf("Write tools are disabled. Enable with --write-enabled flag.")
 	}
 
@@ -126,17 +127,31 @@ func (s *Server) Initialize() {
 			return &b
 		}
 
-		tool := mcp.Tool{
-			Name:        handler.Name(),
-			Description: handler.Description(),
-			InputSchema: handler.Schema(),
-			Annotations: mcp.ToolAnnotation{
+		// Build annotations - use defaults if no profile
+		var annotations mcp.ToolAnnotation
+		if profile != nil {
+			annotations = mcp.ToolAnnotation{
 				Title:          handler.Name(),
 				ReadOnlyHint:   boolPtr(profile.ImpactScope == ImpactRead),
 				IdempotentHint: boolPtr(profile.Idempotent),
 				OpenWorldHint:  boolPtr(profile.PIIExposure),
-			},
-			// Store the full profile in Meta for the Bridge to access
+			}
+		} else {
+			// No profile - assume read-only and safe defaults
+			annotations = mcp.ToolAnnotation{
+				Title:          handler.Name(),
+				ReadOnlyHint:   boolPtr(true),
+				IdempotentHint: boolPtr(true),
+				OpenWorldHint:  boolPtr(false),
+			}
+		}
+
+		tool := mcp.Tool{
+			Name:        handler.Name(),
+			Description: handler.Description(),
+			InputSchema: handler.Schema(),
+			Annotations: annotations,
+			// Store the full profile in Meta for the Bridge to access (nil if no profile)
 			Meta: &mcp.Meta{
 				AdditionalFields: map[string]any{
 					"enforcer_profile": profile,
@@ -150,8 +165,8 @@ func (s *Server) Initialize() {
 
 		// Register the tool handler
 		s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			// Check if write tools are disabled and this is a write tool
-			if !s.writeEnabled && (toolProfile.ImpactScope == ImpactWrite || toolProfile.ImpactScope == ImpactDelete || toolProfile.ImpactScope == ImpactAdmin) {
+			// Check if write tools are disabled and this is a write tool (skip if no profile)
+			if toolProfile != nil && !s.writeEnabled && (toolProfile.ImpactScope == ImpactWrite || toolProfile.ImpactScope == ImpactDelete || toolProfile.ImpactScope == ImpactAdmin) {
 				return mcp.NewToolResultError("Write tools are disabled. Enable with --write-enabled flag."), nil
 			}
 

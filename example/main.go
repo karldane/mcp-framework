@@ -41,7 +41,7 @@ func (t *HelloTool) Handle(ctx context.Context, args map[string]interface{}) (st
 	return fmt.Sprintf("Hello, %s!", name), nil
 }
 
-func (t *HelloTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *HelloTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.DefaultEnforcerProfile()
 }
 
@@ -107,7 +107,7 @@ func (t *CalculatorTool) Handle(ctx context.Context, args map[string]interface{}
 	return fmt.Sprintf("%.2f", result), nil
 }
 
-func (t *CalculatorTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *CalculatorTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.DefaultEnforcerProfile()
 }
 
