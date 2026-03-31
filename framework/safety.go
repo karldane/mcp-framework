@@ -44,8 +44,8 @@ type EnforcerProfile struct {
 
 // DefaultEnforcerProfile returns the default safety profile
 // Defaults: med risk, read impact, cost 5, PII true, idempotent false, approval false
-func DefaultEnforcerProfile() EnforcerProfile {
-	return EnforcerProfile{
+func DefaultEnforcerProfile() *EnforcerProfile {
+	return &EnforcerProfile{
 		RiskLevel:    RiskMed,
 		ImpactScope:  ImpactRead,
 		ResourceCost: 5,
@@ -107,10 +107,17 @@ func WithApprovalReq(required bool) ProfileOption {
 }
 
 // NewEnforcerProfile creates a profile with the given options
-func NewEnforcerProfile(opts ...ProfileOption) EnforcerProfile {
-	profile := DefaultEnforcerProfile()
+func NewEnforcerProfile(opts ...ProfileOption) *EnforcerProfile {
+	profile := &EnforcerProfile{
+		RiskLevel:    RiskMed,
+		ImpactScope:  ImpactRead,
+		ResourceCost: 5,
+		PIIExposure:  true,
+		Idempotent:   false,
+		ApprovalReq:  false,
+	}
 	for _, opt := range opts {
-		opt(&profile)
+		opt(profile)
 	}
 	return profile
 }
