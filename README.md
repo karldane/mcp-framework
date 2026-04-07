@@ -187,30 +187,40 @@ mcp-framework/
 - `github.com/mark3labs/mcp-go`: MCP protocol implementation
 - Standard library only (minimal external dependencies)
 
-## Building Custom MCP Servers
+## Building a New Backend
 
-To create a new MCP server:
+> **Start here:** [`docs/SPEC_MCP_BACKEND.md`](docs/SPEC_MCP_BACKEND.md) is the
+> canonical reference for all new backends. It covers the standard Makefile,
+> README template, directory layout, `devdocs/` convention, testing requirements,
+> and a pre-release checklist. Read it before writing any code.
 
-1. Create a new Go module
-2. Add dependency: `go get github.com/karldane/mcp-framework`
-3. Implement the `ToolHandler` interface for your tools
-4. Create a Server struct that embeds `framework.Server`
-5. Register your tools in a constructor function
-6. Write comprehensive tests
+The short version:
+
+1. Create a new Go module with `main.go` at the repo root
+2. Add `github.com/karldane/mcp-framework` as a dependency (use a `replace` directive during development if the framework is local)
+3. Implement `framework.ToolHandler` for each tool — `Name`, `Description`, `Schema`, `Handle`, `GetEnforcerProfile`
+4. Register tools via a `tools.Register(server, cfg)` helper in `internal/tools/`
+5. Copy the standard `Makefile` from the spec verbatim, substituting `BINARY_NAME`
+6. Write tests covering EnforcerProfile accuracy, schema, and `Handle` validation before touching the client
+7. Follow the README template in the spec — tools table with Risk/Impact/Approval columns is mandatory
 
 ### Example Directory Structure
 
 ```
-my-mcp-server/
-├── mypackage/
-│   ├── myserver.go      # Server implementation
-│   ├── mytools.go       # Tool implementations
-│   └── myserver_test.go # Tests
-├── main.go              # Entry point
+my-mcp/
+├── main.go                  # Wiring only — no business logic
+├── Makefile                 # Standard (copy from SPEC_MCP_BACKEND.md)
+├── README.md                # Standard template (from SPEC_MCP_BACKEND.md)
+├── LICENSE                  # Functional Source License 1.1, ALv2 Future
 ├── go.mod
 ├── go.sum
-├── README.md
-└── LICENSE
+├── internal/
+│   ├── config/              # Config struct and env var parsing
+│   ├── client/              # API client for the target service
+│   └── tools/               # Tool implementations
+└── devdocs/
+    ├── SPEC_<NAME>_BACKEND.md  # Backend-specific requirements and phases
+    └── AGENTS.md               # Context for AI agents: decisions, gotchas, status
 ```
 
 ### Best Practices
