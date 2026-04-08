@@ -23,8 +23,8 @@ type ToolHandler interface {
 	Handle(ctx context.Context, args map[string]interface{}) (string, error)
 
 	// GetEnforcerProfile returns the self-reported safety metadata for the tool
-	// This profile is transmitted during the tools/list handshake via annotations
-	// Return nil to opt out of safety enforcement
+	// This profile is transmitted during the tools/list handshake via annotations.
+	// Return nil to opt out of safety enforcement.
 	GetEnforcerProfile() *EnforcerProfile
 }
 
@@ -33,6 +33,10 @@ type Config struct {
 	Name         string
 	Version      string
 	Instructions string
+	// WriteEnabled controls whether mutating tools (ImpactWrite/Delete/Admin) are
+	// permitted. Defaults to true — set to false to run in readonly mode.
+	// In backend servers this should be set to !cfg.ReadOnly().
+	WriteEnabled bool
 }
 
 // Server provides the base MCP server functionality
@@ -45,31 +49,38 @@ type Server struct {
 	mcpServer    *server.MCPServer
 }
 
-// NewServer creates a new MCP server with the given name and version
+// NewServer creates a new MCP server with the given name and version.
+// Writes are enabled by default; use SetWriteEnabled(false) or pass
+// WriteEnabled: false in Config to restrict to readonly mode.
 func NewServer(name, version string) *Server {
 	s := &Server{
 		name:         name,
 		version:      version,
-		writeEnabled: false,
+		writeEnabled: true,
 		tools:        make(map[string]ToolHandler),
 	}
 	return s
 }
 
-// SetWriteEnabled enables or disables write tools
+// SetWriteEnabled enables or disables mutating tools (ImpactWrite/Delete/Admin).
 func (s *Server) SetWriteEnabled(enabled bool) {
 	s.writeEnabled = enabled
 }
 
-// IsWriteEnabled returns whether write tools are enabled
+// IsWriteEnabled returns whether mutating tools are permitted.
 func (s *Server) IsWriteEnabled() bool {
 	return s.writeEnabled
 }
 
-// NewServerWithConfig creates a server with full configuration
+// NewServerWithConfig creates a server with full configuration.
+// If config.WriteEnabled is false, mutating tools will be blocked.
+// The zero value of Config.WriteEnabled is false, so callers must explicitly
+// set WriteEnabled: true (or call SetWriteEnabled(true) afterwards) unless
+// they intend to run in readonly mode.
 func NewServerWithConfig(config *Config) *Server {
 	s := NewServer(config.Name, config.Version)
 	s.instructions = config.Instructions
+	s.writeEnabled = config.WriteEnabled
 	return s
 }
 
@@ -99,10 +110,10 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]i
 		return "", fmt.Errorf("tool '%s' not found", name)
 	}
 
-	// Check if write tools are disabled and this is a write tool (skip if no profile)
+	// Check write-gate (skip enforcement for tools that return no profile)
 	profile := handler.GetEnforcerProfile()
 	if profile != nil && !s.writeEnabled && (profile.ImpactScope == ImpactWrite || profile.ImpactScope == ImpactDelete || profile.ImpactScope == ImpactAdmin) {
-		return "", fmt.Errorf("Write tools are disabled. Enable with --write-enabled flag.")
+		return "", fmt.Errorf("write tools are disabled in readonly mode; start the server without --readonly to allow mutations")
 	}
 
 	return handler.Handle(ctx, args)
@@ -127,7 +138,7 @@ func (s *Server) Initialize() {
 			return &b
 		}
 
-		// Build annotations - use defaults if no profile
+		// Build annotations — use safe defaults when a tool opts out of profiling
 		var annotations mcp.ToolAnnotation
 		if profile != nil {
 			annotations = mcp.ToolAnnotation{
@@ -137,7 +148,6 @@ func (s *Server) Initialize() {
 				OpenWorldHint:  boolPtr(profile.PIIExposure),
 			}
 		} else {
-			// No profile - assume read-only and safe defaults
 			annotations = mcp.ToolAnnotation{
 				Title:          handler.Name(),
 				ReadOnlyHint:   boolPtr(true),
@@ -165,9 +175,9 @@ func (s *Server) Initialize() {
 
 		// Register the tool handler
 		s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			// Check if write tools are disabled and this is a write tool (skip if no profile)
+			// Check write-gate (skip for tools with no profile)
 			if toolProfile != nil && !s.writeEnabled && (toolProfile.ImpactScope == ImpactWrite || toolProfile.ImpactScope == ImpactDelete || toolProfile.ImpactScope == ImpactAdmin) {
-				return mcp.NewToolResultError("Write tools are disabled. Enable with --write-enabled flag."), nil
+				return mcp.NewToolResultError("write tools are disabled in readonly mode; start the server without --readonly to allow mutations"), nil
 			}
 
 			var args map[string]interface{}
