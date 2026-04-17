@@ -13,7 +13,7 @@ type MockToolHandler struct {
 	name        string
 	description string
 	schema      mcp.ToolInputSchema
-	result      string
+	result      ToolResult
 	err         error
 	profile     *EnforcerProfile
 }
@@ -30,9 +30,9 @@ func (m *MockToolHandler) Schema() mcp.ToolInputSchema {
 	return m.schema
 }
 
-func (m *MockToolHandler) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (m *MockToolHandler) Handle(ctx context.Context, args map[string]interface{}) (ToolResult, error) {
 	if m.err != nil {
-		return "", m.err
+		return ToolResult{}, m.err
 	}
 	return m.result, nil
 }
@@ -47,7 +47,15 @@ func (m *MockToolHandler) GetEnforcerProfile() *EnforcerProfile {
 func writeTool(name string) *MockToolHandler {
 	return &MockToolHandler{
 		name:   name,
-		result: "ok",
+		result: TextResult("ok"),
+		schema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"param": map[string]interface{}{
+					"type": "string",
+				},
+			},
+		},
 		profile: NewEnforcerProfile(
 			WithImpact(ImpactWrite),
 		),
@@ -57,7 +65,15 @@ func writeTool(name string) *MockToolHandler {
 func readTool(name string) *MockToolHandler {
 	return &MockToolHandler{
 		name:   name,
-		result: "data",
+		result: TextResult("data"),
+		schema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"param": map[string]interface{}{
+					"type": "string",
+				},
+			},
+		},
 		profile: NewEnforcerProfile(
 			WithImpact(ImpactRead),
 		),
@@ -92,8 +108,16 @@ func TestToolRegistration(t *testing.T) {
 	handler := &MockToolHandler{
 		name:        "test-tool",
 		description: "A test tool",
-		schema:      mcp.ToolInputSchema{},
-		result:      "test result",
+		schema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"param": map[string]interface{}{
+					"type":        "string",
+					"description": "A parameter",
+				},
+			},
+		},
+		result: TextResult("test result"),
 	}
 
 	err := server.RegisterTool(handler)
@@ -117,8 +141,16 @@ func TestToolExecution(t *testing.T) {
 	handler := &MockToolHandler{
 		name:        "test-tool",
 		description: "A test tool",
-		schema:      mcp.ToolInputSchema{},
-		result:      "test result",
+		schema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"param": map[string]interface{}{
+					"type":        "string",
+					"description": "A parameter",
+				},
+			},
+		},
+		result: TextResult("test result"),
 	}
 
 	err := server.RegisterTool(handler)
@@ -133,9 +165,7 @@ func TestToolExecution(t *testing.T) {
 		t.Fatalf("Tool execution failed: %v", err)
 	}
 
-	if result != "test result" {
-		t.Errorf("Expected result 'test result', got '%s'", result)
-	}
+	AssertTextResult(t, result, "test result")
 }
 
 func TestToolExecutionNotFound(t *testing.T) {
@@ -158,9 +188,27 @@ func TestDuplicateToolRegistration(t *testing.T) {
 
 	handler1 := &MockToolHandler{
 		name: "test-tool",
+		schema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"param": map[string]interface{}{
+					"type": "string",
+				},
+			},
+		},
+		result: TextResult("ok"),
 	}
 	handler2 := &MockToolHandler{
 		name: "test-tool",
+		schema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"param": map[string]interface{}{
+					"type": "string",
+				},
+			},
+		},
+		result: TextResult("ok"),
 	}
 
 	err := server.RegisterTool(handler1)
@@ -234,7 +282,15 @@ func TestWriteGateBlocksMutatingTools(t *testing.T) {
 
 			tool := &MockToolHandler{
 				name:   "tool",
-				result: "ok",
+				result: TextResult("ok"),
+				schema: mcp.ToolInputSchema{
+					Type: "object",
+					Properties: map[string]interface{}{
+						"param": map[string]interface{}{
+							"type": "string",
+						},
+					},
+				},
 				profile: NewEnforcerProfile(
 					WithImpact(tc.impact),
 				),
@@ -263,7 +319,15 @@ func TestWriteGateAllowsWhenEnabled(t *testing.T) {
 
 			tool := &MockToolHandler{
 				name:   "tool",
-				result: "ok",
+				result: TextResult("ok"),
+				schema: mcp.ToolInputSchema{
+					Type: "object",
+					Properties: map[string]interface{}{
+						"param": map[string]interface{}{
+							"type": "string",
+						},
+					},
+				},
 				profile: NewEnforcerProfile(
 					WithImpact(impact),
 				),
@@ -309,8 +373,16 @@ func TestNilProfileSkipsWriteGate(t *testing.T) {
 	s.SetWriteEnabled(false)
 
 	tool := &MockToolHandler{
-		name:    "no-profile",
-		result:  "ok",
+		name:   "no-profile",
+		result: TextResult("ok"),
+		schema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"param": map[string]interface{}{
+					"type": "string",
+				},
+			},
+		},
 		profile: nil,
 	}
 	_ = s.RegisterTool(tool)

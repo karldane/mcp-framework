@@ -2,11 +2,26 @@ package framework
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
+
+// registeredTool holds a tool handler with its compiled schema validator
+type registeredTool struct {
+	handler   ToolHandler
+	validator *jsonschema.Schema
+}
+
+// schemaCompiler is a shared compiler for all schema compilations
+var schemaCompiler = jsonschema.NewCompiler()
+
+// schemaCounter ensures unique schema URLs across all servers and registrations
+var schemaCounter int64
 
 // ToolHandler defines the interface for MCP tool implementations
 type ToolHandler interface {
@@ -20,7 +35,7 @@ type ToolHandler interface {
 	Schema() mcp.ToolInputSchema
 
 	// Handle executes the tool with the provided arguments
-	Handle(ctx context.Context, args map[string]interface{}) (string, error)
+	Handle(ctx context.Context, args map[string]interface{}) (ToolResult, error)
 
 	// GetEnforcerProfile returns the self-reported safety metadata for the tool
 	// This profile is transmitted during the tools/list handshake via annotations.
@@ -45,7 +60,7 @@ type Server struct {
 	version      string
 	instructions string
 	writeEnabled bool
-	tools        map[string]ToolHandler
+	tools        map[string]registeredTool
 	mcpServer    *server.MCPServer
 }
 
@@ -57,7 +72,7 @@ func NewServer(name, version string) *Server {
 		name:         name,
 		version:      version,
 		writeEnabled: true,
-		tools:        make(map[string]ToolHandler),
+		tools:        make(map[string]registeredTool),
 	}
 	return s
 }
@@ -84,13 +99,40 @@ func NewServerWithConfig(config *Config) *Server {
 	return s
 }
 
-// RegisterTool adds a tool handler to the server
+// RegisterTool adds a tool handler to the server.
+// Panics if the tool's schema is invalid — this is a programming error that
+// must be fixed before the server starts.
 func (s *Server) RegisterTool(handler ToolHandler) error {
 	name := handler.Name()
 	if _, exists := s.tools[name]; exists {
 		return fmt.Errorf("tool '%s' already registered", name)
 	}
-	s.tools[name] = handler
+
+	schema := handler.Schema()
+	schemaJSON, err := json.Marshal(schema)
+	if err != nil {
+		panic(fmt.Sprintf("tool %q has invalid schema (marshal error): %v", name, err))
+	}
+	var schemaDoc any
+	if err := json.Unmarshal(schemaJSON, &schemaDoc); err != nil {
+		panic(fmt.Sprintf("tool %q has invalid schema (unmarshal error): %v", name, err))
+	}
+	// Use a global counter to make URL unique for each registration
+	// This allows the same tool to be registered on different server instances
+	id := atomic.AddInt64(&schemaCounter, 1)
+	url := fmt.Sprintf("tool://%s/schema/%d", name, id)
+	if err := schemaCompiler.AddResource(url, schemaDoc); err != nil {
+		panic(fmt.Sprintf("tool %q failed to add schema resource: %v", name, err))
+	}
+	validator, err := schemaCompiler.Compile(url)
+	if err != nil {
+		panic(fmt.Sprintf("tool %q has invalid schema: %v", name, err))
+	}
+
+	s.tools[name] = registeredTool{
+		handler:   handler,
+		validator: validator,
+	}
 	return nil
 }
 
@@ -104,19 +146,35 @@ func (s *Server) ListTools() []string {
 }
 
 // ExecuteTool runs a tool by name with the provided arguments
-func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
-	handler, exists := s.tools[name]
-	if !exists {
-		return "", fmt.Errorf("tool '%s' not found", name)
+func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (ToolResult, error) {
+	rt, ok := s.tools[name]
+	if !ok {
+		return ToolResult{}, fmt.Errorf("tool '%s' not found", name)
 	}
 
 	// Check write-gate (skip enforcement for tools that return no profile)
-	profile := handler.GetEnforcerProfile()
+	profile := rt.handler.GetEnforcerProfile()
 	if profile != nil && !s.writeEnabled && (profile.ImpactScope == ImpactWrite || profile.ImpactScope == ImpactDelete || profile.ImpactScope == ImpactAdmin) {
-		return "", fmt.Errorf("write tools are disabled in readonly mode; start the server without --readonly to allow mutations")
+		return ToolResult{}, fmt.Errorf("write tools are disabled in readonly mode; start the server without --readonly to allow mutations")
 	}
 
-	return handler.Handle(ctx, args)
+	// Validate inputs against schema
+	if err := rt.validator.Validate(args); err != nil {
+		return ToolResult{}, &ValidationError{Stage: "input", Tool: name, Err: err}
+	}
+
+	// Call handler
+	result, err := rt.handler.Handle(ctx, args)
+	if err != nil {
+		return ToolResult{}, fmt.Errorf("tool %s: %w", name, err)
+	}
+
+	// Validate output
+	if err := validateResult(result); err != nil {
+		return ToolResult{}, &ValidationError{Stage: "output", Tool: name, Err: err}
+	}
+
+	return result, nil
 }
 
 // Initialize sets up the MCP server with all registered tools
@@ -130,7 +188,8 @@ func (s *Server) Initialize() {
 	s.mcpServer = server.NewMCPServer(s.name, s.version, serverOptions...)
 
 	// Register all tools with the MCP server
-	for _, handler := range s.tools {
+	for name, rt := range s.tools {
+		handler := rt.handler
 		profile := handler.GetEnforcerProfile()
 
 		// Helper function to convert bool to *bool
@@ -170,8 +229,10 @@ func (s *Server) Initialize() {
 		}
 
 		// Store values needed in closure
+		toolName := name
 		toolHandler := handler
 		toolProfile := profile
+		toolValidator := rt.validator
 
 		// Register the tool handler
 		s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -186,13 +247,67 @@ func (s *Server) Initialize() {
 					args = argMap
 				}
 			}
+
+			// Validate inputs
+			if err := toolValidator.Validate(args); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("tool %q input validation: %v", toolName, err)), nil
+			}
+
+			// Call handler
 			result, err := toolHandler.Handle(ctx, args)
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
-			return mcp.NewToolResultText(result), nil
+
+			// Validate output
+			if err := validateResult(result); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("tool %q output validation: %v", toolName, err)), nil
+			}
+
+			// Convert ToolResult to MCP CallToolResult
+			return toolResultToMCP(result), nil
 		})
 	}
+}
+
+// toolResultToMCP converts a framework ToolResult to an MCP CallToolResult
+func toolResultToMCP(result ToolResult) *mcp.CallToolResult {
+	var content []mcp.Content
+	for _, item := range result.Content {
+		switch item.Type {
+		case "text":
+			content = append(content, mcp.TextContent{
+				Type: "text",
+				Text: item.Text,
+			})
+		case "image":
+			content = append(content, mcp.ImageContent{
+				Type:     "image",
+				MIMEType: item.MimeType,
+				Data:     item.Data,
+			})
+		default:
+			// For unknown types, fall back to text representation
+			content = append(content, mcp.TextContent{
+				Type: "text",
+				Text: fmt.Sprintf("[unsupported content type: %s]", item.Type),
+			})
+		}
+	}
+
+	if result.IsError {
+		// For error results, we need to combine content into a single text error
+		var text string
+		for _, c := range content {
+			if tc, ok := c.(mcp.TextContent); ok {
+				text = tc.Text
+				break
+			}
+		}
+		return mcp.NewToolResultError(text)
+	}
+
+	return &mcp.CallToolResult{Content: content}
 }
 
 // Start begins serving MCP requests via stdio (blocking)

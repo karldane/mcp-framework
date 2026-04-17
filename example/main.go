@@ -33,12 +33,12 @@ func (t *HelloTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *HelloTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *HelloTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
-		return "", fmt.Errorf("name is required")
+		return framework.ToolResult{}, fmt.Errorf("name is required")
 	}
-	return fmt.Sprintf("Hello, %s!", name), nil
+	return framework.TextResult(fmt.Sprintf("Hello, %s!", name)), nil
 }
 
 func (t *HelloTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -78,13 +78,13 @@ func (t *CalculatorTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *CalculatorTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *CalculatorTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	operation, _ := args["operation"].(string)
 	a, aOk := args["a"].(float64)
 	b, bOk := args["b"].(float64)
 
 	if !aOk || !bOk {
-		return "", fmt.Errorf("a and b must be numbers")
+		return framework.ToolResult{}, fmt.Errorf("a and b must be numbers")
 	}
 
 	var result float64
@@ -97,14 +97,14 @@ func (t *CalculatorTool) Handle(ctx context.Context, args map[string]interface{}
 		result = a * b
 	case "divide":
 		if b == 0 {
-			return "", fmt.Errorf("cannot divide by zero")
+			return framework.ToolResult{}, fmt.Errorf("cannot divide by zero")
 		}
 		result = a / b
 	default:
-		return "", fmt.Errorf("unknown operation: %s", operation)
+		return framework.ToolResult{}, fmt.Errorf("unknown operation: %s", operation)
 	}
 
-	return fmt.Sprintf("%.2f", result), nil
+	return framework.TextResult(fmt.Sprintf("%.2f", result)), nil
 }
 
 func (t *CalculatorTool) GetEnforcerProfile() *framework.EnforcerProfile {
