@@ -45,13 +45,12 @@ type ToolHandler interface {
 
 // Config holds server configuration
 type Config struct {
-	Name         string
-	Version      string
-	Instructions string
-	// WriteEnabled controls whether mutating tools (ImpactWrite/Delete/Admin) are
-	// permitted. Defaults to true — set to false to run in readonly mode.
-	// In backend servers this should be set to !cfg.ReadOnly().
-	WriteEnabled bool
+	Name           string
+	Version        string
+	Instructions   string
+	WriteEnabled   bool
+	PIIScanEnabled bool
+	PIIConfig      *PIIPipelineConfig
 }
 
 // Server provides the base MCP server functionality
@@ -62,6 +61,8 @@ type Server struct {
 	writeEnabled bool
 	tools        map[string]registeredTool
 	mcpServer    *server.MCPServer
+	piiEnabled   bool
+	piiPipeline  *PIIPipeline
 }
 
 // NewServer creates a new MCP server with the given name and version.
@@ -96,6 +97,10 @@ func NewServerWithConfig(config *Config) *Server {
 	s := NewServer(config.Name, config.Version)
 	s.instructions = config.Instructions
 	s.writeEnabled = config.WriteEnabled
+	s.piiEnabled = config.PIIScanEnabled
+	if config.PIIScanEnabled && config.PIIConfig != nil {
+		s.piiPipeline = NewPIIPipeline(config.PIIConfig)
+	}
 	return s
 }
 
@@ -152,27 +157,29 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]i
 		return ToolResult{}, fmt.Errorf("tool '%s' not found", name)
 	}
 
-	// Check write-gate (skip enforcement for tools that return no profile)
 	profile := rt.handler.GetEnforcerProfile()
 	if profile != nil && !s.writeEnabled && (profile.ImpactScope == ImpactWrite || profile.ImpactScope == ImpactDelete || profile.ImpactScope == ImpactAdmin) {
 		return ToolResult{}, fmt.Errorf("write tools are disabled in readonly mode; start the server without --readonly to allow mutations")
 	}
 
-	// Validate inputs against schema
 	if err := rt.validator.Validate(args); err != nil {
 		return ToolResult{}, &ValidationError{Stage: "input", Tool: name, Err: err}
 	}
 
-	// Call handler
 	result, err := rt.handler.Handle(ctx, args)
 	if err != nil {
 		return ToolResult{}, fmt.Errorf("tool %s: %w", name, err)
 	}
 
-	// Validate output
 	if err := validateResult(result); err != nil {
 		return ToolResult{}, &ValidationError{Stage: "output", Tool: name, Err: err}
 	}
+
+	if s.piiEnabled && s.piiPipeline != nil {
+		result = s.piiPipeline.Process(result)
+	}
+
+	result.Meta.FrameworkVer = s.version
 
 	return result, nil
 }
@@ -272,42 +279,33 @@ func (s *Server) Initialize() {
 
 // toolResultToMCP converts a framework ToolResult to an MCP CallToolResult
 func toolResultToMCP(result ToolResult) *mcp.CallToolResult {
-	var content []mcp.Content
-	for _, item := range result.Content {
-		switch item.Type {
-		case "text":
-			content = append(content, mcp.TextContent{
-				Type: "text",
-				Text: item.Text,
-			})
-		case "image":
-			content = append(content, mcp.ImageContent{
-				Type:     "image",
-				MIMEType: item.MimeType,
-				Data:     item.Data,
-			})
-		default:
-			// For unknown types, fall back to text representation
-			content = append(content, mcp.TextContent{
-				Type: "text",
-				Text: fmt.Sprintf("[unsupported content type: %s]", item.Type),
-			})
-		}
-	}
-
 	if result.IsError {
-		// For error results, we need to combine content into a single text error
-		var text string
-		for _, c := range content {
-			if tc, ok := c.(mcp.TextContent); ok {
-				text = tc.Text
-				break
-			}
-		}
-		return mcp.NewToolResultError(text)
+		return mcp.NewToolResultError(result.RawText)
 	}
 
-	return &mcp.CallToolResult{Content: content}
+	if result.RawText != "" {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: result.RawText,
+				},
+			},
+		}
+	}
+
+	if result.Data != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("%v", result.Data),
+				},
+			},
+		}
+	}
+
+	return mcp.NewToolResultError("empty tool result")
 }
 
 // Start begins serving MCP requests via stdio (blocking)

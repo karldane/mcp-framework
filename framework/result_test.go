@@ -10,145 +10,72 @@ import (
 func TestTextResult(t *testing.T) {
 	result := TextResult("hello world")
 
-	if len(result.Content) != 1 {
-		t.Fatalf("Expected 1 content item, got %d", len(result.Content))
+	if result.RawText != "hello world" {
+		t.Errorf("Expected RawText='hello world', got %q", result.RawText)
 	}
 	if result.IsError {
 		t.Error("Expected IsError=false")
-	}
-	if result.Content[0].Type != "text" {
-		t.Errorf("Expected Type='text', got %q", result.Content[0].Type)
-	}
-	if result.Content[0].Text != "hello world" {
-		t.Errorf("Expected Text='hello world', got %q", result.Content[0].Text)
 	}
 }
 
 func TestErrorResult(t *testing.T) {
 	result := ErrorResult("something went wrong")
 
-	if len(result.Content) != 1 {
-		t.Fatalf("Expected 1 content item, got %d", len(result.Content))
+	if result.RawText != "something went wrong" {
+		t.Errorf("Expected RawText='something went wrong', got %q", result.RawText)
 	}
 	if !result.IsError {
 		t.Error("Expected IsError=true")
 	}
-	if result.Content[0].Type != "text" {
-		t.Errorf("Expected Type='text', got %q", result.Content[0].Type)
-	}
-	if result.Content[0].Text != "something went wrong" {
-		t.Errorf("Expected Text='something went wrong', got %q", result.Content[0].Text)
-	}
 }
 
-func TestMultiResult(t *testing.T) {
-	items := []ContentItem{
-		{Type: "text", Text: "first"},
-		{Type: "text", Text: "second"},
+func TestDataResult(t *testing.T) {
+	rows := []map[string]interface{}{
+		{"id": 1, "name": "alice"},
+		{"id": 2, "name": "bob"},
 	}
-	result := MultiResult(items...)
+	result := DataResult(rows)
 
-	if len(result.Content) != 2 {
-		t.Fatalf("Expected 2 content items, got %d", len(result.Content))
+	data, ok := result.Data.([]map[string]interface{})
+	if !ok {
+		t.Fatal("Expected Data to be []map[string]interface{}")
+	}
+	if len(data) != 2 {
+		t.Errorf("Expected 2 rows, got %d", len(data))
 	}
 	if result.IsError {
 		t.Error("Expected IsError=false")
-	}
-	if result.Content[0].Text != "first" {
-		t.Errorf("Expected Content[0].Text='first', got %q", result.Content[0].Text)
-	}
-	if result.Content[1].Text != "second" {
-		t.Errorf("Expected Content[1].Text='second', got %q", result.Content[1].Text)
-	}
-}
-
-func TestTextContent(t *testing.T) {
-	item := TextContent("hello")
-
-	if item.Type != "text" {
-		t.Errorf("Expected Type='text', got %q", item.Type)
-	}
-	if item.Text != "hello" {
-		t.Errorf("Expected Text='hello', got %q", item.Text)
 	}
 }
 
 func TestValidateResultEmpty(t *testing.T) {
 	err := validateResult(ToolResult{})
 	if err == nil {
-		t.Error("Expected error for empty Content")
-	}
-}
-
-func TestValidateResultTextItemEmpty(t *testing.T) {
-	result := ToolResult{
-		Content: []ContentItem{
-			{Type: "text", Text: ""},
-		},
-	}
-	err := validateResult(result)
-	if err == nil {
-		t.Error("Expected error for text item with empty Text")
-	}
-}
-
-func TestValidateResultImageItemMissingMimeType(t *testing.T) {
-	result := ToolResult{
-		Content: []ContentItem{
-			{Type: "image", Data: "abc123"},
-		},
-	}
-	err := validateResult(result)
-	if err == nil {
-		t.Error("Expected error for image item missing MimeType")
-	}
-}
-
-func TestValidateResultImageItemMissingData(t *testing.T) {
-	result := ToolResult{
-		Content: []ContentItem{
-			{Type: "image", MimeType: "image/png"},
-		},
-	}
-	err := validateResult(result)
-	if err == nil {
-		t.Error("Expected error for image item missing Data")
-	}
-}
-
-func TestValidateResultInvalidType(t *testing.T) {
-	result := ToolResult{
-		Content: []ContentItem{
-			{Type: "invalid"},
-		},
-	}
-	err := validateResult(result)
-	if err == nil {
-		t.Error("Expected error for invalid Type")
+		t.Error("Expected error for empty ToolResult")
 	}
 }
 
 func TestValidateResultValidText(t *testing.T) {
-	result := ToolResult{
-		Content: []ContentItem{
-			{Type: "text", Text: "valid"},
-		},
-	}
+	result := ToolResult{RawText: "valid"}
 	err := validateResult(result)
 	if err != nil {
 		t.Errorf("Unexpected error for valid text result: %v", err)
 	}
 }
 
-func TestValidateResultValidImage(t *testing.T) {
-	result := ToolResult{
-		Content: []ContentItem{
-			{Type: "image", MimeType: "image/png", Data: "abc123"},
-		},
-	}
+func TestValidateResultValidData(t *testing.T) {
+	result := ToolResult{Data: []map[string]interface{}{{"id": 1}}}
 	err := validateResult(result)
 	if err != nil {
-		t.Errorf("Unexpected error for valid image result: %v", err)
+		t.Errorf("Unexpected error for valid data result: %v", err)
+	}
+}
+
+func TestValidateResultError(t *testing.T) {
+	result := ErrorResult("error")
+	err := validateResult(result)
+	if err != nil {
+		t.Errorf("Unexpected error for error result: %v", err)
 	}
 }
 

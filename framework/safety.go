@@ -20,6 +20,16 @@ const (
 	ImpactAdmin  ImpactScope = "admin"
 )
 
+// PIILevel describes the PII exposure level after framework pipeline processing
+type PIILevel string
+
+const (
+	PIILevelNone     PIILevel = "none"
+	PIILevelFiltered PIILevel = "filtered"
+	PIILevelPartial  PIILevel = "partial"
+	PIILevelRaw      PIILevel = "raw"
+)
+
 // EnforcerProfile contains self-reported safety metadata for a tool
 // This profile is transmitted during the tools/list handshake via annotations
 type EnforcerProfile struct {
@@ -40,6 +50,9 @@ type EnforcerProfile struct {
 
 	// ApprovalReq: force Human-in-the-Loop regardless of role? (default: false)
 	ApprovalReq bool `json:"approval_req"`
+
+	// PIILevel: PII exposure level after pipeline processing (populated by framework)
+	PIILevel PIILevel `json:"pii_level,omitempty"`
 }
 
 // DefaultEnforcerProfile returns the default safety profile

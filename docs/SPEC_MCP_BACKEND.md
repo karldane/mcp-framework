@@ -164,15 +164,15 @@ func (t *MyTool) Handle(ctx context.Context, args map[string]interface{}) (strin
     return result, nil
 }
 
-func (t *MyTool) GetEnforcerProfile() framework.EnforcerProfile {
-    return framework.NewEnforcerProfile(
-        framework.WithRisk(framework.RiskLow),
-        framework.WithImpact(framework.ImpactRead),
-        framework.WithResourceCost(3),
-        framework.WithPII(false),
-        framework.WithIdempotent(true),
-        framework.WithApprovalReq(false),
-    )
+func (t *MyTool) GetEnforcerProfile() *framework.EnforcerProfile {
+	return framework.NewEnforcerProfile(
+		framework.WithRisk(framework.RiskLow),
+		framework.WithImpact(framework.ImpactRead),
+		framework.WithResourceCost(3),
+		framework.WithPII(false),
+		framework.WithIdempotent(true),
+		framework.WithApprovalReq(false),
+	)
 }
 ```
 
@@ -182,6 +182,62 @@ func (t *MyTool) GetEnforcerProfile() framework.EnforcerProfile {
 - All required parameters must be validated at the top of `Handle()` before any I/O
 - `GetEnforcerProfile()` is **mandatory** — the framework will not register a tool without it
 - Never return raw stack traces from `Handle()` — wrap errors with context
+
+---
+
+## ToolHandler Interface (Current)
+
+The framework uses a `ToolResult` envelope instead of raw strings:
+
+```go
+type ToolHandler interface {
+	Name() string
+	Description() string
+	Schema() mcp.ToolInputSchema
+	Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error)
+	GetEnforcerProfile() *EnforcerProfile
+}
+```
+
+Use the constructors in `framework` to build responses:
+
+```go
+func (t *MyTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+	val, ok := args["param_one"].(string)
+	if !ok || val == "" {
+		return framework.ToolResult{}, fmt.Errorf("param_one is required")
+	}
+	// ... call client, format response
+	
+	// For text responses:
+	return framework.TextResult("success: " + result), nil
+	
+	// For structured data (rows):
+	return framework.DataResult(rows), nil
+	
+	// For errors:
+	return framework.ErrorResult("failed: " + err.Error()), nil
+}
+```
+
+### Migration from Legacy Interface
+
+If your tool uses the old `(string, error)` signature, wrap it at registration:
+
+```go
+// In main.go or tools registration
+type LegacyTool struct{ ... }
+
+func (t *LegacyTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+	// old implementation
+	return "result", nil
+}
+
+// Register wrapped:
+server.RegisterTool(framework.WrapLegacy(&LegacyTool{}))
+```
+
+The wrapper automatically converts the string to `ToolResult{RawText: ...}` and applies PII scanning when enabled.
 
 ### EnforcerProfile Quick Reference
 
@@ -193,6 +249,64 @@ func (t *MyTool) GetEnforcerProfile() framework.EnforcerProfile {
 | `PII` | bool | true | Default true — assume sensitive until proven otherwise |
 | `Idempotent` | bool | false | True only if calling twice has identical effect |
 | `ApprovalReq` | bool | false | True for write/delete tools that should require HITL |
+| `PIILevel` | none / filtered / partial / raw | (empty) | Set by framework PII pipeline — for bridge policies |
+
+---
+
+## PII Scanning (Optional)
+
+> Requires: `go get github.com/karldane/go-presidio` — imported as `presidio` package
+
+The framework can automatically scan and redact PII from tool responses. Enable per server:
+
+```go
+server := framework.NewServerWithConfig(&framework.Config{
+	Name:        "my-server",
+	Version:     "1.0.0",
+	PIIScanEnabled: true,
+	PIIConfig: &framework.PIIPipelineConfig{
+		HMACKeyEnv:      "PRESIDIO_HMAC_KEY",      // For hash/pseudonymise
+		MinConfidence:  0.5,
+		DefaultOperator: "redact",                // redact | hash | mask | pseudonymise
+		EntityOperators: map[string]string{
+			"EMAIL_ADDRESS": "hash",               // Override per entity type
+		},
+		SampleSize: 20,                         // Rows to sample per column
+	},
+})
+```
+
+### Structured Data Responses
+
+For tabulated data (e.g. query results), return `framework.DataResult(rows)`:
+
+```go
+func (t *QueryTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+	rows, err := t.client.Query(args["sql"].(string))
+	if err != nil {
+		return framework.ErrorResult(err.Error()), nil
+	}
+	return framework.DataResult(rows), nil  // []map[string]interface{}
+}
+```
+
+The PII pipeline processes each column, applies configured operators, and populates `ResultMeta.ColumnReports`.
+
+### Column Hints (Oracle Backend)
+
+If your backend has schema knowledge, provide type hints to skip unnecessary scanning:
+
+```go
+hints := map[string]presidio.ColumnHint{
+	"email":     {ScanPolicy: presidio.ScanPolicyFull},
+	"created":  {ScanPolicy: presidio.ScanPolicySafe},  // Skip scan — safe type
+	"blob_data": {ScanPolicy: presidio.ScanPolicyStrip}, // Strip binary
+}
+return framework.ToolResult{
+	Data:        rows,
+	ColumnHints: hints,
+}
+```
 
 ---
 
@@ -201,14 +315,15 @@ func (t *MyTool) GetEnforcerProfile() framework.EnforcerProfile {
 Tools that modify state must respect the `ReadOnly` flag:
 
 ```go
-func (t *MyWriteTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
-    if t.cfg.ReadOnly {
-        return "", fmt.Errorf("this tool is disabled in read-only mode")
-    }
-    if !t.cfg.WriteEnabled {
-        return "", fmt.Errorf("write operations require --write-enabled flag")
-    }
-    // ... proceed
+func (t *MyWriteTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+	if t.cfg.ReadOnly {
+		return framework.ErrorResult("this tool is disabled in read-only mode"), nil
+	}
+	if !t.cfg.WriteEnabled {
+		return framework.ErrorResult("write operations require --write-enabled flag"), nil
+	}
+	// ... proceed
+	return framework.TextResult("success"), nil
 }
 ```
 
