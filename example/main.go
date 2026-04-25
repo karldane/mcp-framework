@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -33,7 +32,7 @@ func (t *HelloTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *HelloTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *HelloTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
 		return framework.ToolResult{}, fmt.Errorf("name is required")
@@ -41,7 +40,7 @@ func (t *HelloTool) Handle(ctx context.Context, args map[string]interface{}) (fr
 	return framework.TextResult(fmt.Sprintf("Hello, %s!", name)), nil
 }
 
-func (t *HelloTool) GetEnforcerProfile() *framework.EnforcerProfile {
+func (t *HelloTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
 	return framework.DefaultEnforcerProfile()
 }
 
@@ -78,7 +77,7 @@ func (t *CalculatorTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *CalculatorTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *CalculatorTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	operation, _ := args["operation"].(string)
 	a, aOk := args["a"].(float64)
 	b, bOk := args["b"].(float64)
@@ -107,7 +106,7 @@ func (t *CalculatorTool) Handle(ctx context.Context, args map[string]interface{}
 	return framework.TextResult(fmt.Sprintf("%.2f", result)), nil
 }
 
-func (t *CalculatorTool) GetEnforcerProfile() *framework.EnforcerProfile {
+func (t *CalculatorTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
 	return framework.DefaultEnforcerProfile()
 }
 

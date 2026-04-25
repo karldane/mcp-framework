@@ -1,7 +1,6 @@
 package framework
 
 import (
-	"context"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -15,17 +14,6 @@ func TestTextResult(t *testing.T) {
 	}
 	if result.IsError {
 		t.Error("Expected IsError=false")
-	}
-}
-
-func TestErrorResult(t *testing.T) {
-	result := ErrorResult("something went wrong")
-
-	if result.RawText != "something went wrong" {
-		t.Errorf("Expected RawText='something went wrong', got %q", result.RawText)
-	}
-	if !result.IsError {
-		t.Error("Expected IsError=true")
 	}
 }
 
@@ -68,14 +56,6 @@ func TestValidateResultValidData(t *testing.T) {
 	err := validateResult(result)
 	if err != nil {
 		t.Errorf("Unexpected error for valid data result: %v", err)
-	}
-}
-
-func TestValidateResultError(t *testing.T) {
-	result := ErrorResult("error")
-	err := validateResult(result)
-	if err != nil {
-		t.Errorf("Unexpected error for error result: %v", err)
 	}
 }
 
@@ -125,13 +105,13 @@ type mockToolHandlerWithTypedResult struct {
 func (m *mockToolHandlerWithTypedResult) Name() string                { return m.name }
 func (m *mockToolHandlerWithTypedResult) Description() string         { return m.description }
 func (m *mockToolHandlerWithTypedResult) Schema() mcp.ToolInputSchema { return m.schema }
-func (m *mockToolHandlerWithTypedResult) Handle(ctx context.Context, args map[string]interface{}) (ToolResult, error) {
+func (m *mockToolHandlerWithTypedResult) Handle(ctx CallContext, args map[string]interface{}) (ToolResult, error) {
 	if m.err != nil {
 		return ToolResult{}, m.err
 	}
 	return m.result, nil
 }
-func (m *mockToolHandlerWithTypedResult) GetEnforcerProfile() *EnforcerProfile {
+func (m *mockToolHandlerWithTypedResult) EnforcerProfile(args map[string]interface{}) *EnforcerProfile {
 	if m.profile != nil {
 		return m.profile
 	}
@@ -155,11 +135,48 @@ func TestAssertTextResultSuccess(t *testing.T) {
 }
 
 func TestAssertErrorResultSuccess(t *testing.T) {
-	result := ErrorResult("error message")
+	result := ErrorResult(ToolError{
+		Code:    ErrCodeInternalError,
+		Message: "error message",
+	})
 	AssertErrorResult(t, result, "error message")
 }
 
 func TestAssertErrorResultContains(t *testing.T) {
-	result := ErrorResult("full error message here")
+	result := ErrorResult(ToolError{
+		Code:    ErrCodeInternalError,
+		Message: "full error message here",
+	})
 	AssertErrorResult(t, result, "error")
+}
+
+func TestErrorResult(t *testing.T) {
+	result := ErrorResult(ToolError{
+		Code:    ErrCodeInvalidArgs,
+		Message: "something went wrong",
+	})
+
+	if result.RawText != "something went wrong" {
+		t.Errorf("Expected RawText='something went wrong', got %q", result.RawText)
+	}
+	if !result.IsError {
+		t.Error("Expected IsError=true")
+	}
+	if result.Error == nil {
+		t.Error("Expected Error to be set")
+	}
+	if result.Error.Code != ErrCodeInvalidArgs {
+		t.Errorf("Error.Code = %q, want %q", result.Error.Code, ErrCodeInvalidArgs)
+	}
+	if result.Error.Message != "something went wrong" {
+		t.Errorf("Error.Message = %q, want %q", result.Error.Message, "something went wrong")
+	}
+}
+
+func TestValidateResultError(t *testing.T) {
+	result := ErrorResultLegacy("error")
+	err := validateResult(result)
+	if err != nil {
+		t.Errorf("Unexpected error for error result: %v", err)
+	}
 }

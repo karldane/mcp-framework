@@ -1,7 +1,6 @@
 package framework
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -15,6 +14,7 @@ type ToolResult struct {
 	ColumnHints map[string]presidio.ColumnHint `json:"_hints,omitempty"`
 	Meta        ResultMeta                     `json:"_meta,omitempty"`
 	IsError     bool                           `json:"is_error,omitempty"`
+	Error       *ToolError                     `json:"error,omitempty"`
 }
 
 type ResultMeta struct {
@@ -39,8 +39,24 @@ func DataResult(rows []map[string]interface{}) ToolResult {
 	return ToolResult{Data: rows}
 }
 
-func ErrorResult(msg string) ToolResult {
+// ErrorResultLegacy is for backward compatibility with the old string-based error
+func ErrorResultLegacy(msg string) ToolResult {
 	return ToolResult{RawText: msg, IsError: true}
+}
+
+// ErrorResult constructs a ToolResult representing a tool error with structured error info
+// Also sets RawText for backward compatibility with MCP error conversion
+func ErrorResult(err ToolError) ToolResult {
+	return ToolResult{IsError: true, Error: &err, RawText: err.Message}
+}
+
+// ErrorResultf constructs a ToolResult with an INTERNAL_ERROR code and formatted message.
+// Convenience for the common case of wrapping a Go error.
+func ErrorResultf(format string, a ...any) ToolResult {
+	return ErrorResult(ToolError{
+		Code:    ErrCodeInternalError,
+		Message: fmt.Sprintf(format, a...),
+	})
 }
 
 type ValidationError struct {
@@ -103,7 +119,7 @@ func AssertErrorResult(t *testing.T, result ToolResult, contains string) {
 func AssertToolCompliant(t *testing.T, tool ToolHandler, args map[string]interface{}) {
 	t.Helper()
 
-	profile := tool.GetEnforcerProfile()
+	profile := tool.EnforcerProfile(nil)
 	if profile == nil {
 		t.Fatal("EnforcerProfile is nil")
 	}
@@ -117,7 +133,7 @@ func AssertToolCompliant(t *testing.T, tool ToolHandler, args map[string]interfa
 		t.Error("EnforcerProfile.ResourceCost is zero value")
 	}
 
-	ctx := context.Background()
+	ctx := Background()
 	result, err := tool.Handle(ctx, args)
 	if err != nil {
 		t.Fatalf("Handle returned error: %v", err)

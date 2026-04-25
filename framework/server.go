@@ -35,12 +35,14 @@ type ToolHandler interface {
 	Schema() mcp.ToolInputSchema
 
 	// Handle executes the tool with the provided arguments
-	Handle(ctx context.Context, args map[string]interface{}) (ToolResult, error)
+	Handle(ctx CallContext, args map[string]interface{}) (ToolResult, error)
 
-	// GetEnforcerProfile returns the self-reported safety metadata for the tool
+	// EnforcerProfile returns the self-reported safety metadata for the tool.
 	// This profile is transmitted during the tools/list handshake via annotations.
-	// Return nil to opt out of safety enforcement.
-	GetEnforcerProfile() *EnforcerProfile
+	// Called with nil args at tools/list time (return worst-case profile).
+	// Called with real args at tools/call time (may return accurate profile).
+	// Implementations that are always static should ignore args.
+	EnforcerProfile(args map[string]interface{}) *EnforcerProfile
 }
 
 // Config holds server configuration
@@ -157,7 +159,11 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]i
 		return ToolResult{}, fmt.Errorf("tool '%s' not found", name)
 	}
 
-	profile := rt.handler.GetEnforcerProfile()
+	// Convert context to CallContext for handler
+	callCtx := CallContext{Context: ctx}
+
+	// Check write-gate (skip enforcement for tools that return no profile)
+	profile := rt.handler.EnforcerProfile(nil) // tools/list call for static profile
 	if profile != nil && !s.writeEnabled && (profile.ImpactScope == ImpactWrite || profile.ImpactScope == ImpactDelete || profile.ImpactScope == ImpactAdmin) {
 		return ToolResult{}, fmt.Errorf("write tools are disabled in readonly mode; start the server without --readonly to allow mutations")
 	}
@@ -166,7 +172,8 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]i
 		return ToolResult{}, &ValidationError{Stage: "input", Tool: name, Err: err}
 	}
 
-	result, err := rt.handler.Handle(ctx, args)
+	// Call handler with real args for dynamic profile
+	result, err := rt.handler.Handle(callCtx, args)
 	if err != nil {
 		return ToolResult{}, fmt.Errorf("tool %s: %w", name, err)
 	}
@@ -197,7 +204,7 @@ func (s *Server) Initialize() {
 	// Register all tools with the MCP server
 	for name, rt := range s.tools {
 		handler := rt.handler
-		profile := handler.GetEnforcerProfile()
+		profile := handler.EnforcerProfile(nil)
 
 		// Helper function to convert bool to *bool
 		boolPtr := func(b bool) *bool {
@@ -255,13 +262,16 @@ func (s *Server) Initialize() {
 				}
 			}
 
+			// Convert context to CallContext for handler
+			callCtx := CallContext{Context: ctx}
+
 			// Validate inputs
 			if err := toolValidator.Validate(args); err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("tool %q input validation: %v", toolName, err)), nil
 			}
 
-			// Call handler
-			result, err := toolHandler.Handle(ctx, args)
+			// Call handler with real args for dynamic profile
+			result, err := toolHandler.Handle(callCtx, args)
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}

@@ -194,15 +194,15 @@ type ToolHandler interface {
 	Name() string
 	Description() string
 	Schema() mcp.ToolInputSchema
-	Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error)
-	GetEnforcerProfile() *EnforcerProfile
+	Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error)
+	EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile
 }
 ```
 
 Use the constructors in `framework` to build responses:
 
 ```go
-func (t *MyTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *MyTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	val, ok := args["param_one"].(string)
 	if !ok || val == "" {
 		return framework.ToolResult{}, fmt.Errorf("param_one is required")
@@ -251,6 +251,10 @@ The wrapper automatically converts the string to `ToolResult{RawText: ...}` and 
 | `ApprovalReq` | bool | false | True for write/delete tools that should require HITL |
 | `PIILevel` | none / filtered / partial / raw | (empty) | Set by framework PII pipeline — for bridge policies |
 
+**Note:** `EnforcerProfile` now takes an `args map[string]interface{}` parameter and is called twice:
+1. At `tools/list` time with `args = nil` (return worst-case profile)
+2. At `tools/call` time with real args (may return accurate profile)
+
 ---
 
 ## PII Scanning (Optional)
@@ -281,7 +285,7 @@ server := framework.NewServerWithConfig(&framework.Config{
 For tabulated data (e.g. query results), return `framework.DataResult(rows)`:
 
 ```go
-func (t *QueryTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *QueryTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	rows, err := t.client.Query(args["sql"].(string))
 	if err != nil {
 		return framework.ErrorResult(err.Error()), nil
@@ -315,12 +319,12 @@ return framework.ToolResult{
 Tools that modify state must respect the `ReadOnly` flag:
 
 ```go
-func (t *MyWriteTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *MyWriteTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	if t.cfg.ReadOnly {
-		return framework.ErrorResult("this tool is disabled in read-only mode"), nil
+		return framework.ErrorResultf("this tool is disabled in read-only mode"), nil
 	}
 	if !t.cfg.WriteEnabled {
-		return framework.ErrorResult("write operations require --write-enabled flag"), nil
+		return framework.ErrorResultf("write operations require --write-enabled flag"), nil
 	}
 	// ... proceed
 	return framework.TextResult("success"), nil

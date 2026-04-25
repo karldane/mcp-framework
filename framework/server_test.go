@@ -30,14 +30,14 @@ func (m *MockToolHandler) Schema() mcp.ToolInputSchema {
 	return m.schema
 }
 
-func (m *MockToolHandler) Handle(ctx context.Context, args map[string]interface{}) (ToolResult, error) {
+func (m *MockToolHandler) Handle(ctx CallContext, args map[string]interface{}) (ToolResult, error) {
 	if m.err != nil {
 		return ToolResult{}, m.err
 	}
 	return m.result, nil
 }
 
-func (m *MockToolHandler) GetEnforcerProfile() *EnforcerProfile {
+func (m *MockToolHandler) EnforcerProfile(args map[string]interface{}) *EnforcerProfile {
 	if m.profile != nil {
 		return m.profile
 	}
