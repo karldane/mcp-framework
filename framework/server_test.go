@@ -2,6 +2,7 @@ package framework
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -753,6 +754,66 @@ func TestServerExecuteToolValidationError(t *testing.T) {
 	_, err := s.ExecuteTool(context.Background(), "validation-tool", map[string]interface{}{"x": 123})
 	if err == nil {
 		t.Error("expected validation error")
+	}
+}
+
+func TestServerExecuteToolError(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "error-tool",
+		description: "A tool",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		err:         fmt.Errorf("some error"),
+		profile:     DefaultEnforcerProfile(),
+	}
+	_ = s.RegisterTool(tool)
+	_, err := s.ExecuteTool(context.Background(), "error-tool", nil)
+	if err == nil {
+		t.Error("expected error from handler")
+	}
+}
+
+func TestServerExecuteToolWithEmptyData(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "data-tool",
+		description: "A tool",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      ToolResult{Data: []map[string]interface{}{}},
+		profile:     DefaultEnforcerProfile(),
+	}
+	_ = s.RegisterTool(tool)
+	result, err := s.ExecuteTool(context.Background(), "data-tool", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Data == nil {
+		t.Error("expected data")
+	}
+}
+
+func TestServerExecuteToolWithPII(t *testing.T) {
+	s := NewServerWithConfig(&Config{
+		Name:           "test",
+		Version:        "1.0.0",
+		PIIScanEnabled: true,
+		PIIConfig:      &PIIPipelineConfig{},
+	})
+	tool := &MockToolHandler{
+		name:        "pii-tool",
+		description: "A PII tool",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      ToolResult{RawText: "my email is test@example.com"},
+		profile:     DefaultEnforcerProfile(),
+	}
+	_ = s.RegisterTool(tool)
+	result, err := s.ExecuteTool(context.Background(), "pii-tool", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Meta.PIIScanApplied != true {
+		t.Error("expected PIIScanApplied=true")
 	}
 }
 
