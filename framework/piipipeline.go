@@ -90,6 +90,8 @@ func NewPIIPipeline(cfg *PIIPipelineConfig) *PIIPipeline {
 		hmacKey:         []byte(os.Getenv("PRESIDIO_HMAC_KEY")),
 	}
 
+	sampleSize := 20 // default
+
 	if cfg != nil {
 		if cfg.HMACKeyEnv != "" {
 			p.hmacKey = []byte(os.Getenv(cfg.HMACKeyEnv))
@@ -97,46 +99,31 @@ func NewPIIPipeline(cfg *PIIPipelineConfig) *PIIPipeline {
 		if cfg.MinConfidence > 0 {
 			p.minConfidence = cfg.MinConfidence
 		}
-		p.applyConfigOperators(cfg)
-
 		if cfg.SampleSize > 0 {
-			p.structured = presidio.NewStructuredAnalyzer(presidio.StructuredConfig{
-				SampleSize: cfg.SampleSize,
-			})
+			sampleSize = cfg.SampleSize
 		}
+		p.applyConfigOperators(cfg)
 	}
 
 	registry := buildRegistry()
 
-	aCfg := presidio.AnalyzerConfig{
+	p.analyzer = presidio.NewAnalyzerEngine(presidio.AnalyzerConfig{
 		Registry:     registry,
 		MinScore:     p.minConfidence,
 		Entities:     nil,
 		ContextBoost: true,
-	}
-	p.analyzer = presidio.NewAnalyzerEngine(aCfg)
+	})
 
-	anonymizerCfg := presidio.AnonymizerConfig{
+	p.anonymizer = presidio.NewAnonymizerEngine(presidio.AnonymizerConfig{
 		Operators: p.buildOperatorMap(),
-	}
-	p.anonymizer = presidio.NewAnonymizerEngine(anonymizerCfg)
+	})
 
-	if p.structured == nil {
-		policy := make(map[string]presidio.ColumnPolicy)
-		p.structured = presidio.NewStructuredAnalyzer(presidio.StructuredConfig{
-			Analyzer:   p.analyzer,
-			Anonymizer: p.anonymizer,
-			Policies:   policy,
-			SampleSize: 20,
-		})
-	} else {
-		p.structured = presidio.NewStructuredAnalyzer(presidio.StructuredConfig{
-			Analyzer:   p.analyzer,
-			Anonymizer: p.anonymizer,
-			Policies:   make(map[string]presidio.ColumnPolicy),
-			SampleSize: 20,
-		})
-	}
+	p.structured = presidio.NewStructuredAnalyzer(presidio.StructuredConfig{
+		Analyzer:   p.analyzer,
+		Anonymizer: p.anonymizer,
+		Policies:   make(map[string]presidio.ColumnPolicy),
+		SampleSize: sampleSize,
+	})
 
 	return p
 }
