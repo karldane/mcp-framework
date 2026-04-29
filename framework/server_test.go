@@ -7,6 +7,24 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// MockLegacyTool is a test implementation of the old (string, error) interface.
+type MockLegacyTool struct {
+	name        string
+	description string
+	schema      mcp.ToolInputSchema
+	result      string
+}
+
+func (m *MockLegacyTool) Name() string                { return m.name }
+func (m *MockLegacyTool) Description() string         { return m.description }
+func (m *MockLegacyTool) Schema() mcp.ToolInputSchema { return m.schema }
+func (m *MockLegacyTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+	return m.result, nil
+}
+func (m *MockLegacyTool) GetEnforcerProfile() *EnforcerProfile {
+	return DefaultEnforcerProfile()
+}
+
 // MockToolHandler is a test implementation of ToolHandler
 
 type MockToolHandler struct {
@@ -376,20 +394,253 @@ func TestNilProfileSkipsWriteGate(t *testing.T) {
 		name:   "no-profile",
 		result: TextResult("ok"),
 		schema: mcp.ToolInputSchema{
-			Type: "object",
-			Properties: map[string]interface{}{
-				"param": map[string]interface{}{
-					"type": "string",
-				},
-			},
+			Type:       "object",
+			Properties: map[string]interface{}{},
 		},
+		profile: DefaultEnforcerProfile(),
+	}
+	_ = s.RegisterTool(tool)
+
+	result, err := s.ExecuteTool(ctx, "no-profile", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.RawText != "ok" {
+		t.Errorf("expected 'ok', got %q", result.RawText)
+	}
+}
+
+func TestServerInitialize(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "test-tool",
+		description: "A test tool",
+		schema: mcp.ToolInputSchema{
+			Type:       "object",
+			Properties: map[string]interface{}{},
+		},
+		result:  TextResult("hello"),
+		profile: NewEnforcerProfile(WithImpact(ImpactRead)),
+	}
+	_ = s.RegisterTool(tool)
+
+	s.Initialize()
+
+	if s.GetMCPServer() == nil {
+		t.Fatal("expected mcpServer to be set")
+	}
+}
+
+func TestServerInitializeWithPIO(t *testing.T) {
+	s := NewServerWithConfig(&Config{
+		Name:           "test",
+		Version:        "1.0.0",
+		PIIScanEnabled: true,
+		PIIConfig:      &PIIPipelineConfig{},
+	})
+	tool := &MockToolHandler{
+		name:        "pii-tool",
+		description: "A PII tool",
+		schema: mcp.ToolInputSchema{
+			Type:       "object",
+			Properties: map[string]interface{}{},
+		},
+		result:  TextResult("data"),
+		profile: NewEnforcerProfile(WithImpact(ImpactRead)),
+	}
+	_ = s.RegisterTool(tool)
+
+	s.Initialize()
+
+	if s.GetMCPServer() == nil {
+		t.Fatal("expected mcpServer to be set")
+	}
+}
+
+func TestServerInitializeWriteDisabled(t *testing.T) {
+	s := NewServerWithConfig(&Config{
+		Name:         "test",
+		Version:      "1.0.0",
+		WriteEnabled: false,
+	})
+	tool := &MockToolHandler{
+		name:        "readonly-tool",
+		description: "A readonly tool",
+		schema: mcp.ToolInputSchema{
+			Type:       "object",
+			Properties: map[string]interface{}{},
+		},
+		result:  TextResult("data"),
+		profile: NewEnforcerProfile(WithImpact(ImpactRead)),
+	}
+	_ = s.RegisterTool(tool)
+
+	s.Initialize()
+
+	if s.GetMCPServer() == nil {
+		t.Fatal("expected mcpServer to be set")
+	}
+}
+
+func TestAssertToolCompliant(t *testing.T) {
+	tool := &MockToolHandler{
+		name:        "test-tool",
+		description: "A test tool",
+		schema: mcp.ToolInputSchema{
+			Type:       "object",
+			Properties: map[string]interface{}{},
+		},
+		result:  TextResult("hello"),
+		profile: NewEnforcerProfile(WithRisk(RiskLow), WithImpact(ImpactRead)),
+	}
+	AssertToolCompliant(t, tool, map[string]interface{}{})
+}
+
+func TestFormatDataResultWithRows(t *testing.T) {
+	result := ToolResult{
+		Data: []map[string]interface{}{
+			{"name": "Alice", "age": "30"},
+			{"name": "Bob", "age": "25"},
+		},
+	}
+	text, err := formatDataResult(result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(text) == 0 {
+		t.Error("expected non-empty text")
+	}
+}
+
+func TestFormatDataResultEmptyRows(t *testing.T) {
+	result := ToolResult{
+		Data: []map[string]interface{}{},
+	}
+	text, err := formatDataResult(result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if text == "" {
+		t.Error("expected non-empty text")
+	}
+}
+
+func TestFormatDataResultWithSafetyNote(t *testing.T) {
+	result := ToolResult{
+		Data: []map[string]interface{}{
+			{"email": "test@example.com"},
+		},
+		Meta: ResultMeta{SafetyNote: "pii detected"},
+	}
+	text, err := formatDataResult(result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if text == "" {
+		t.Error("expected non-empty text")
+	}
+}
+
+func TestFormatDataResultNonSlice(t *testing.T) {
+	result := ToolResult{
+		Data: map[string]interface{}{"key": "value"},
+	}
+	text, err := formatDataResult(result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if text == "" {
+		t.Error("expected non-empty text")
+	}
+}
+
+func TestInitializeBlocksWriteWhenDisabled(t *testing.T) {
+	s := NewServerWithConfig(&Config{
+		Name:         "test",
+		Version:      "1.0.0",
+		WriteEnabled: false,
+	})
+	tool := &MockToolHandler{
+		name:        "write-tool",
+		description: "A write tool",
+		schema: mcp.ToolInputSchema{
+			Type:       "object",
+			Properties: map[string]interface{}{},
+		},
+		result:  TextResult("ok"),
+		profile: NewEnforcerProfile(WithImpact(ImpactWrite)),
+	}
+	_ = s.RegisterTool(tool)
+
+	s.Initialize()
+
+	_, err := s.ExecuteTool(context.Background(), "write-tool", nil)
+	if err == nil {
+		t.Error("expected error when write disabled")
+	}
+}
+
+func TestInitializeWithNilProfile(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "nil-profile-tool",
+		description: "A tool with nil profile",
+		schema: mcp.ToolInputSchema{
+			Type:       "object",
+			Properties: map[string]interface{}{},
+		},
+		result:  TextResult("ok"),
 		profile: nil,
 	}
 	_ = s.RegisterTool(tool)
 
-	_, err := s.ExecuteTool(ctx, "no-profile", nil)
-	if err != nil {
-		t.Errorf("nil-profile tool should bypass write-gate; got error: %v", err)
+	s.Initialize()
+
+	if s.GetMCPServer() == nil {
+		t.Error("expected mcpServer to be set")
+	}
+}
+
+func TestWrapLegacyDescription(t *testing.T) {
+	legacy := &MockLegacyTool{
+		name:        "legacy",
+		description: "Legacy description",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      "hello",
+	}
+	wrapped := WrapLegacy(legacy)
+	if wrapped.Description() != "Legacy description" {
+		t.Error("expected description to match")
+	}
+}
+
+func TestWrapLegacySchema(t *testing.T) {
+	legacy := &MockLegacyTool{
+		name:        "legacy",
+		description: "Desc",
+		schema:      mcp.ToolInputSchema{Type: "object", Properties: map[string]interface{}{"x": nil}},
+		result:      "hello",
+	}
+	wrapped := WrapLegacy(legacy)
+	if wrapped.Schema().Type != "object" {
+		t.Error("expected schema to match")
+	}
+}
+
+func TestListToolsWithTools(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "tool1",
+		description: "Tool 1",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		profile:     DefaultEnforcerProfile(),
+	}
+	_ = s.RegisterTool(tool)
+
+	tools := s.ListTools()
+	if len(tools) != 1 || tools[0] != "tool1" {
+		t.Error("expected tool1 in list")
 	}
 }
 

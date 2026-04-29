@@ -1,6 +1,7 @@
 package framework
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -110,5 +111,94 @@ func TestBindArgsInvalidJSON(t *testing.T) {
 	_, err := BindArgs[badParams](args)
 	if err == nil {
 		t.Fatal("expected error for type mismatch")
+	}
+}
+
+func TestIsZeroBool(t *testing.T) {
+	v := reflect.ValueOf(false)
+	if !isZero(v) {
+		t.Error("false bool should be zero")
+	}
+	v = reflect.ValueOf(true)
+	if isZero(v) {
+		t.Error("true bool should not be zero")
+	}
+}
+
+func TestIsZeroInt(t *testing.T) {
+	v := reflect.ValueOf(0)
+	if !isZero(v) {
+		t.Error("0 int should be zero")
+	}
+	v = reflect.ValueOf(42)
+	if isZero(v) {
+		t.Error("42 int should not be zero")
+	}
+}
+
+func TestIsZeroString(t *testing.T) {
+	v := reflect.ValueOf("")
+	if !isZero(v) {
+		t.Error("empty string should be zero")
+	}
+	v = reflect.ValueOf("hello")
+	if isZero(v) {
+		t.Error("non-empty string should not be zero")
+	}
+}
+
+func TestIsZeroPtr(t *testing.T) {
+	var nilPtr *int = nil
+	v := reflect.ValueOf(nilPtr)
+	if !isZero(v) {
+		t.Error("nil pointer should be zero")
+	}
+	x := 42
+	v = reflect.ValueOf(&x)
+	if isZero(v) {
+		t.Error("non-nil pointer should not be zero")
+	}
+}
+
+func TestIsZeroSlice(t *testing.T) {
+	v := reflect.ValueOf([]int(nil))
+	if !isZero(v) {
+		t.Error("nil slice should be zero")
+	}
+}
+
+func TestIsZeroFloat(t *testing.T) {
+	v := reflect.ValueOf(0.0)
+	if !isZero(v) {
+		t.Error("0.0 float should be zero")
+	}
+	v = reflect.ValueOf(3.14)
+	if isZero(v) {
+		t.Error("3.14 float should not be zero")
+	}
+}
+
+func TestIsZeroUint(t *testing.T) {
+	v := reflect.ValueOf(uint(0))
+	if !isZero(v) {
+		t.Error("0 uint should be zero")
+	}
+	v = reflect.ValueOf(uint(42))
+	if isZero(v) {
+		t.Error("42 uint should not be zero")
+	}
+}
+
+func TestIsZeroMap(t *testing.T) {
+	v := reflect.ValueOf(map[string]int(nil))
+	if !isZero(v) {
+		t.Error("nil map should be zero")
+	}
+}
+
+func TestIsZeroChan(t *testing.T) {
+	v := reflect.ValueOf((chan int)(nil))
+	if !isZero(v) {
+		t.Error("nil chan should be zero")
 	}
 }
