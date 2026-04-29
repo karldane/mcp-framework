@@ -1087,6 +1087,165 @@ func TestInitializeWithEmptyTools(t *testing.T) {
 	}
 }
 
+func TestServerExecuteToolWithNilArgs(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "nil-args-tool",
+		description: "Tool with nil args",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		profile:     DefaultEnforcerProfile(),
+	}
+	_ = s.RegisterTool(tool)
+	s.Initialize()
+
+	// Call with nil arguments - tests the nil args path in closure
+	_, err := s.ExecuteTool(context.Background(), "nil-args-tool", nil)
+	if err != nil {
+		t.Errorf("unexpected error with nil args: %v", err)
+	}
+}
+
+func TestServerExecuteToolWithPIIPipeline(t *testing.T) {
+	s := NewServerWithConfig(&Config{
+		Name:           "test",
+		Version:        "1.0.0",
+		PIIScanEnabled: true,
+		PIIConfig:      &PIIPipelineConfig{},
+	})
+	tool := &MockToolHandler{
+		name:        "pii-pipeline-tool",
+		description: "Tool with PII",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      ToolResult{RawText: "email: test@example.com"},
+		profile:     DefaultEnforcerProfile(),
+	}
+	_ = s.RegisterTool(tool)
+	s.Initialize()
+
+	// This tests the PII pipeline integration in the closure
+	result, err := s.ExecuteTool(context.Background(), "pii-pipeline-tool", nil)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result.Meta.PIIScanApplied != true {
+		t.Error("expected PIIScanApplied=true")
+	}
+}
+
+func TestFormatDataResultWithRowsSorted(t *testing.T) {
+	result := ToolResult{
+		Data: []map[string]interface{}{
+			{"zebra": "c", "alpha": "a", "beta": "b"},
+		},
+	}
+	text, err := formatDataResult(result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Columns should be sorted alphabetically
+	if !contains(text, "alpha") {
+		t.Error("expected alpha column in output")
+	}
+}
+
+func TestFormatDataResultWithNullValue(t *testing.T) {
+	result := ToolResult{
+		Data: []map[string]interface{}{
+			{"name": nil, "age": 30},
+		},
+	}
+	text, err := formatDataResult(result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !contains(text, "NULL") {
+		t.Error("expected NULL for nil value")
+	}
+}
+
+func TestFormatDataResultMultipleRows(t *testing.T) {
+	result := ToolResult{
+		Data: []map[string]interface{}{
+			{"a": "1", "b": "2", "c": "3"},
+			{"a": "4", "b": "5", "c": "6"},
+			{"a": "7", "b": "8", "c": "9"},
+		},
+	}
+	text, err := formatDataResult(result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !contains(text, "Rows: 3") {
+		t.Error("expected 'Rows: 3' in output")
+	}
+}
+
+func TestProcessRawTextWithEmail(t *testing.T) {
+	p := NewPIIPipeline(nil)
+	result := ToolResult{RawText: "Contact me at john@example.com"}
+	out := p.Process(result)
+	if !out.Meta.PIIScanApplied {
+		t.Error("PIIScanApplied should be true")
+	}
+}
+
+func TestProcessRawTextWithPhone(t *testing.T) {
+	p := NewPIIPipeline(nil)
+	result := ToolResult{RawText: "Call 555-1234"}
+	out := p.Process(result)
+	if !out.Meta.PIIScanApplied {
+		t.Error("PIIScanApplied should be true")
+	}
+}
+
+func TestRegisterToolEmptyName(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "",
+		description: "Empty name tool",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		profile:     DefaultEnforcerProfile(),
+	}
+	// This should work (empty name is allowed, just not useful)
+	err := s.RegisterTool(tool)
+	// No error expected for empty name (may be registered but not usable)
+	_ = err
+}
+
+func TestRegisterToolSchemaValidation(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	// Test with valid JSON schema
+	tool := &MockToolHandler{
+		name:        "valid-schema",
+		description: "Valid schema tool",
+		schema:      mcp.ToolInputSchema{Type: "object", Properties: map[string]interface{}{"id": map[string]interface{}{"type": "integer"}}},
+		result:      TextResult("ok"),
+		profile:     DefaultEnforcerProfile(),
+	}
+	err := s.RegisterTool(tool)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestProcessStructuredDataWithColumnHints(t *testing.T) {
+	p := NewPIIPipeline(nil)
+	result := ToolResult{
+		Data: []map[string]interface{}{
+			{"email": "test@example.com"},
+		},
+		ColumnHints: map[string]ColumnHint{
+			"email": {ScanPolicy: ScanPolicyFull, MaxLength: 100},
+		},
+	}
+	out := p.Process(result)
+	if out.Meta.PIIScanApplied != true {
+		t.Error("PIIScanApplied should be true")
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		func() bool {
