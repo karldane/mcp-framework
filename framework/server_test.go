@@ -927,6 +927,53 @@ func TestToolResultToMCPEmpty(t *testing.T) {
 	}
 }
 
+func TestInitializeWithMultipleTools(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	for i := 0; i < 3; i++ {
+		tool := &MockToolHandler{
+			name:        fmt.Sprintf("tool-%d", i),
+			description: fmt.Sprintf("Tool %d", i),
+			schema:      mcp.ToolInputSchema{Type: "object"},
+			result:      TextResult(fmt.Sprintf("result-%d", i)),
+			profile:     DefaultEnforcerProfile(),
+		}
+		_ = s.RegisterTool(tool)
+	}
+	s.Initialize()
+	tools := s.ListTools()
+	if len(tools) != 3 {
+		t.Errorf("expected 3 tools, got %d", len(tools))
+	}
+}
+
+func TestInitializeWithZeroRiskProfile(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "zero-risk",
+		description: "Risk zero tool",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		profile:     &EnforcerProfile{RiskLevel: RiskLow, ImpactScope: ImpactRead, ResourceCost: 1},
+	}
+	_ = s.RegisterTool(tool)
+	s.Initialize()
+	if s.GetMCPServer() == nil {
+		t.Error("expected mcpServer")
+	}
+}
+
+func TestInitializeWithInstructions(t *testing.T) {
+	s := NewServerWithConfig(&Config{
+		Name:         "test",
+		Version:      "1.0.0",
+		Instructions: "Usage instructions here",
+	})
+	s.Initialize()
+	if s.GetMCPServer() == nil {
+		t.Error("expected mcpServer to be set")
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		func() bool {
