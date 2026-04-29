@@ -1,10 +1,17 @@
 package framework
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"sort"
+	"strings"
 	"sync/atomic"
+	"syscall"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -65,6 +72,78 @@ type Server struct {
 	mcpServer    *server.MCPServer
 	piiEnabled   bool
 	piiPipeline  *PIIPipeline
+}
+
+// autoFlushingWriter wraps a bufio.Writer and flushes after every write.
+type autoFlushingWriter struct {
+	writer *bufio.Writer
+}
+
+func newAutoFlushingWriter(w io.Writer) *autoFlushingWriter {
+	return &autoFlushingWriter{writer: bufio.NewWriter(w)}
+}
+
+func (w *autoFlushingWriter) Write(p []byte) (n int, err error) {
+	n, err = w.writer.Write(p)
+	if err != nil {
+		return n, err
+	}
+	err = w.writer.Flush()
+	return n, err
+}
+
+// formatDataResult serialises a ToolResult whose Data field is set.
+func formatDataResult(result ToolResult) (string, error) {
+	rows, ok := result.Data.([]map[string]interface{})
+	if !ok {
+		b, err := json.Marshal(result.Data)
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
+
+	if len(rows) == 0 {
+		text := "0 rows returned."
+		if result.Meta.SafetyNote != "" {
+			text += "\n\n[PII: " + result.Meta.SafetyNote + "]"
+		}
+		return text, nil
+	}
+
+	cols := make([]string, 0, len(rows[0]))
+	for col := range rows[0] {
+		cols = append(cols, col)
+	}
+	sort.Strings(cols)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Rows: %d\n\n", len(rows)))
+	sb.WriteString(strings.Join(cols, " | "))
+	sb.WriteString("\n")
+	sb.WriteString(strings.Repeat("-", 60))
+	sb.WriteString("\n")
+
+	for _, row := range rows {
+		vals := make([]string, len(cols))
+		for i, col := range cols {
+			if v, ok := row[col]; ok && v != nil {
+				vals[i] = fmt.Sprintf("%v", v)
+			} else {
+				vals[i] = "NULL"
+			}
+		}
+		sb.WriteString(strings.Join(vals, " | "))
+		sb.WriteString("\n")
+	}
+
+	if result.Meta.SafetyNote != "" {
+		sb.WriteString("\n[PII: ")
+		sb.WriteString(result.Meta.SafetyNote)
+		sb.WriteString("]\n")
+	}
+
+	return sb.String(), nil
 }
 
 // NewServer creates a new MCP server with the given name and version.
@@ -281,6 +360,11 @@ func (s *Server) Initialize() {
 				return mcp.NewToolResultError(fmt.Sprintf("tool %q output validation: %v", toolName, err)), nil
 			}
 
+			// Apply PII pipeline if enabled
+			if s.piiEnabled && s.piiPipeline != nil {
+				result = s.piiPipeline.Process(result)
+			}
+
 			// Convert ToolResult to MCP CallToolResult
 			return toolResultToMCP(result), nil
 		})
@@ -305,12 +389,13 @@ func toolResultToMCP(result ToolResult) *mcp.CallToolResult {
 	}
 
 	if result.Data != nil {
+		text, err := formatDataResult(result)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("result serialisation failed: %v", err))
+		}
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				mcp.TextContent{
-					Type: "text",
-					Text: fmt.Sprintf("%v", result.Data),
-				},
+				mcp.TextContent{Type: "text", Text: text},
 			},
 		}
 	}
@@ -318,12 +403,29 @@ func toolResultToMCP(result ToolResult) *mcp.CallToolResult {
 	return mcp.NewToolResultError("empty tool result")
 }
 
-// Start begins serving MCP requests via stdio (blocking)
+// Start begins serving MCP requests via stdio (blocking).
+// It wraps stdout in an auto-flushing writer to prevent output buffering.
 func (s *Server) Start() error {
 	if s.mcpServer == nil {
 		s.Initialize()
 	}
-	return server.ServeStdio(s.mcpServer)
+
+	stdioServer := server.NewStdioServer(s.mcpServer)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		<-sigChan
+		cancel()
+	}()
+
+	stdout := newAutoFlushingWriter(os.Stdout)
+
+	return stdioServer.Listen(ctx, os.Stdin, stdout)
 }
 
 // GetMCPServer returns the underlying MCP server for testing or customization
