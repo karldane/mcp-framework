@@ -33,6 +33,42 @@ func TestToPresidioHintsPreservesScanPolicy(t *testing.T) {
 	}
 }
 
+func TestFromPresidioReportsNil(t *testing.T) {
+	result := fromPresidioReports(nil)
+	if result == nil {
+		t.Errorf("expected non-nil empty slice, got nil")
+	}
+}
+
+func TestFromPresidioReports(t *testing.T) {
+	reports := []presidio.ColumnReport{
+		{
+			ColumnName:     "email",
+			PIIDetected:    true,
+			PIIEntities:    []presidio.EntityType{presidio.EntityEmailAddress},
+			Treatment:      presidio.TreatmentKind("mask"),
+			OriginalLength: 100,
+			TruncatedAt:    50,
+		},
+	}
+	result := fromPresidioReports(reports)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 report, got %d", len(result))
+	}
+	if result[0].ColumnName != "email" {
+		t.Errorf("expected 'email', got %s", result[0].ColumnName)
+	}
+	if !result[0].PIIDetected {
+		t.Error("expected PIIDetected=true")
+	}
+	if len(result[0].EntityTypes) != 1 || result[0].EntityTypes[0] != "EMAIL_ADDRESS" {
+		t.Errorf("expected EMAIL_ADDRESS entity, got %v", result[0].EntityTypes)
+	}
+	if result[0].Treatment == "" {
+		t.Error("expected non-empty treatment")
+	}
+}
+
 // --- F5: SampleSize respected ---
 
 func TestNewPIIPipelineDefaultSampleSize(t *testing.T) {
