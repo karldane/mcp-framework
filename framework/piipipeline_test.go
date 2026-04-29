@@ -182,6 +182,33 @@ func TestApplyConfigOperatorsMask(t *testing.T) {
 	}
 }
 
+func TestProcessStructuredData(t *testing.T) {
+	p := NewPIIPipeline(nil)
+	result := ToolResult{
+		Data: []map[string]interface{}{
+			{"email": "test@example.com"},
+		},
+	}
+	out := p.Process(result)
+	if out.Meta.PIIScanApplied != true {
+		t.Error("PIIScanApplied should be true")
+	}
+	if out.Data == nil {
+		t.Error("Data should be populated")
+	}
+}
+
+func TestProcessStructuredDataEmpty(t *testing.T) {
+	p := NewPIIPipeline(nil)
+	result := ToolResult{
+		Data: []map[string]interface{}{},
+	}
+	out := p.Process(result)
+	if out.Meta.PIIScanApplied != true {
+		t.Error("PIIScanApplied should be true")
+	}
+}
+
 func TestApplyConfigOperatorsHashWithKey(t *testing.T) {
 	os.Setenv("TEST_HMAC_KEY", "secret-key-for-testing")
 	defer os.Unsetenv("TEST_HMAC_KEY")

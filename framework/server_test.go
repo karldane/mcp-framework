@@ -554,29 +554,49 @@ func TestFormatDataResultNonSlice(t *testing.T) {
 	}
 }
 
-func TestInitializeBlocksWriteWhenDisabled(t *testing.T) {
+func TestInitializeBlocksDeleteWhenDisabled(t *testing.T) {
 	s := NewServerWithConfig(&Config{
 		Name:         "test",
 		Version:      "1.0.0",
 		WriteEnabled: false,
 	})
 	tool := &MockToolHandler{
-		name:        "write-tool",
-		description: "A write tool",
-		schema: mcp.ToolInputSchema{
-			Type:       "object",
-			Properties: map[string]interface{}{},
-		},
-		result:  TextResult("ok"),
-		profile: NewEnforcerProfile(WithImpact(ImpactWrite)),
+		name:        "delete-tool",
+		description: "A delete tool",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("deleted"),
+		profile:     NewEnforcerProfile(WithImpact(ImpactDelete)),
 	}
 	_ = s.RegisterTool(tool)
 
 	s.Initialize()
 
-	_, err := s.ExecuteTool(context.Background(), "write-tool", nil)
+	_, err := s.ExecuteTool(context.Background(), "delete-tool", nil)
 	if err == nil {
-		t.Error("expected error when write disabled")
+		t.Error("expected error for delete tool when write disabled")
+	}
+}
+
+func TestInitializeBlocksAdminWhenDisabled(t *testing.T) {
+	s := NewServerWithConfig(&Config{
+		Name:         "test",
+		Version:      "1.0.0",
+		WriteEnabled: false,
+	})
+	tool := &MockToolHandler{
+		name:        "admin-tool",
+		description: "An admin tool",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("admin"),
+		profile:     NewEnforcerProfile(WithImpact(ImpactAdmin)),
+	}
+	_ = s.RegisterTool(tool)
+
+	s.Initialize()
+
+	_, err := s.ExecuteTool(context.Background(), "admin-tool", nil)
+	if err == nil {
+		t.Error("expected error for admin tool when write disabled")
 	}
 }
 
@@ -693,6 +713,46 @@ func TestListToolsWithTools(t *testing.T) {
 	tools := s.ListTools()
 	if len(tools) != 1 || tools[0] != "tool1" {
 		t.Error("expected tool1 in list")
+	}
+}
+
+func TestServerSetWriteEnabled(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	if !s.IsWriteEnabled() {
+		t.Error("write should be enabled by default")
+	}
+	s.SetWriteEnabled(false)
+	if s.IsWriteEnabled() {
+		t.Error("write should be disabled after SetWriteEnabled(false)")
+	}
+	s.SetWriteEnabled(true)
+	if !s.IsWriteEnabled() {
+		t.Error("write should be enabled after SetWriteEnabled(true)")
+	}
+}
+
+func TestServerExecuteToolNotFound(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	_, err := s.ExecuteTool(context.Background(), "non-existent", nil)
+	if err == nil {
+		t.Error("expected error for non-existent tool")
+	}
+}
+
+func TestServerExecuteToolValidationError(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "validation-tool",
+		description: "A tool",
+		schema:      mcp.ToolInputSchema{Type: "object", Properties: map[string]interface{}{"x": map[string]interface{}{"type": "string"}}},
+		result:      TextResult("ok"),
+		profile:     DefaultEnforcerProfile(),
+	}
+	_ = s.RegisterTool(tool)
+	// Pass invalid args to trigger validation error
+	_, err := s.ExecuteTool(context.Background(), "validation-tool", map[string]interface{}{"x": 123})
+	if err == nil {
+		t.Error("expected validation error")
 	}
 }
 
