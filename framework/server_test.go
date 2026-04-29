@@ -974,6 +974,59 @@ func TestInitializeWithInstructions(t *testing.T) {
 	}
 }
 
+func TestInitializeWithNilProfileBypassesWriteGate(t *testing.T) {
+	s := NewServerWithConfig(&Config{
+		Name:         "test",
+		Version:      "1.0.0",
+		WriteEnabled: false,
+	})
+	// Tool without profile should bypass write gate
+	tool := &MockToolHandler{
+		name:        "no-profile-write",
+		description: "Write tool without profile",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		profile:     nil,
+	}
+	_ = s.RegisterTool(tool)
+
+	s.Initialize()
+
+	result, err := s.ExecuteTool(context.Background(), "no-profile-write", nil)
+	if err != nil {
+		t.Errorf("nil profile tool should bypass write gate: %v", err)
+	}
+	if result.RawText != "ok" {
+		t.Error("expected 'ok'")
+	}
+}
+
+func TestInitializeWithReadOnlyProfile(t *testing.T) {
+	s := NewServerWithConfig(&Config{
+		Name:         "test",
+		Version:      "1.0.0",
+		WriteEnabled: false,
+	})
+	tool := &MockToolHandler{
+		name:        "read-tool",
+		description: "Read-only tool",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("data"),
+		profile:     NewEnforcerProfile(WithImpact(ImpactRead)),
+	}
+	_ = s.RegisterTool(tool)
+
+	s.Initialize()
+
+	result, err := s.ExecuteTool(context.Background(), "read-tool", nil)
+	if err != nil {
+		t.Errorf("read tool should work when write disabled: %v", err)
+	}
+	if result.RawText != "data" {
+		t.Error("expected 'data'")
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		func() bool {
