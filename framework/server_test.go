@@ -891,6 +891,42 @@ func TestServerGetMCPServer(t *testing.T) {
 	}
 }
 
+func TestToolResultToMCPError(t *testing.T) {
+	result := ToolResult{IsError: true, RawText: "error occurred"}
+	mcpResult := toolResultToMCP(result)
+	if mcpResult == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
+
+func TestToolResultToMCPRawText(t *testing.T) {
+	result := ToolResult{RawText: "hello world"}
+	mcpResult := toolResultToMCP(result)
+	if mcpResult == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
+
+func TestToolResultToMCPData(t *testing.T) {
+	result := ToolResult{
+		Data: []map[string]interface{}{
+			{"name": "Alice"},
+		},
+	}
+	mcpResult := toolResultToMCP(result)
+	if mcpResult == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
+
+func TestToolResultToMCPEmpty(t *testing.T) {
+	result := ToolResult{}
+	mcpResult := toolResultToMCP(result)
+	if mcpResult == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		func() bool {
