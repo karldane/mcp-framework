@@ -622,8 +622,60 @@ func TestWrapLegacySchema(t *testing.T) {
 		result:      "hello",
 	}
 	wrapped := WrapLegacy(legacy)
-	if wrapped.Schema().Type != "object" {
-		t.Error("expected schema to match")
+	schema := wrapped.Schema()
+	if schema.Type != "object" {
+		t.Error("expected object type")
+	}
+}
+
+func TestWrapLegacyEnforcerProfile(t *testing.T) {
+	legacy := &MockLegacyTool{
+		name:   "legacy",
+		result: "test",
+	}
+	wrapped := WrapLegacy(legacy)
+	profile := wrapped.EnforcerProfile(nil)
+	if profile == nil {
+		t.Fatal("expected non-nil profile")
+	}
+}
+
+func TestWrapLegacyHandleError(t *testing.T) {
+	legacy := &MockLegacyTool{
+		name:   "legacy",
+		result: "test",
+	}
+	wrapped := WrapLegacy(legacy)
+	result, err := wrapped.Handle(CallContext{Context: context.Background()}, map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.RawText != "test" {
+		t.Errorf("expected 'test', got %s", result.RawText)
+	}
+}
+
+func TestServerListTools(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "tool1",
+		description: "Tool 1",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		profile:     DefaultEnforcerProfile(),
+	}
+	_ = s.RegisterTool(tool)
+	tools := s.ListTools()
+	if len(tools) != 1 || tools[0] != "tool1" {
+		t.Error("expected tool1 in list")
+	}
+}
+
+func TestServerListToolsEmpty(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tools := s.ListTools()
+	if len(tools) != 0 {
+		t.Error("expected empty list")
 	}
 }
 
