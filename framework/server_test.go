@@ -830,6 +830,67 @@ func TestServerExecuteToolWithPII(t *testing.T) {
 	}
 }
 
+func TestServerWithInstructions(t *testing.T) {
+	s := NewServerWithConfig(&Config{
+		Name:         "test",
+		Version:      "1.0.0",
+		Instructions: "Use this tool for...",
+	})
+	s.Initialize()
+	if s.GetMCPServer() == nil {
+		t.Error("expected mcpServer to be set")
+	}
+}
+
+func TestServerWithPIIConfig(t *testing.T) {
+	s := NewServerWithConfig(&Config{
+		Name:           "test",
+		Version:        "1.0.0",
+		PIIScanEnabled: true,
+		PIIConfig: &PIIPipelineConfig{
+			SampleSize:      10,
+			MinConfidence:   0.6,
+			DefaultOperator: "mask",
+		},
+	})
+	if s.piiPipeline == nil {
+		t.Error("expected piiPipeline to be set")
+	}
+}
+
+func TestServerWithNilToolProfile(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "nil-profile",
+		description: "Test",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		profile:     nil,
+	}
+	_ = s.RegisterTool(tool)
+	tools := s.ListTools()
+	if len(tools) != 1 {
+		t.Error("expected tool in list")
+	}
+}
+
+func TestServerGetMCPServer(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "tool1",
+		description: "Test",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		profile:     DefaultEnforcerProfile(),
+	}
+	_ = s.RegisterTool(tool)
+	s.Initialize()
+	mcpServer := s.GetMCPServer()
+	if mcpServer == nil {
+		t.Error("expected non-nil mcpServer")
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		func() bool {
