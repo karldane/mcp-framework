@@ -1078,6 +1078,15 @@ func TestNewServerWithAllConfig(t *testing.T) {
 	}
 }
 
+func TestInitializeWithEmptyTools(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	// Initialize without registering any tools
+	s.Initialize()
+	if s.GetMCPServer() == nil {
+		t.Error("expected mcpServer even with no tools")
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		func() bool {
