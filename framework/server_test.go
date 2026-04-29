@@ -990,6 +990,38 @@ func TestInitializeAnnotationsNilProfile(t *testing.T) {
 	}
 }
 
+func TestInitializeToolWithPIIExposure(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "pii-exposure-tool",
+		description: "Tool with PII exposure",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		profile:     NewEnforcerProfile(WithImpact(ImpactRead), WithPII(true)),
+	}
+	_ = s.RegisterTool(tool)
+	s.Initialize()
+	if s.GetMCPServer() == nil {
+		t.Error("expected mcpServer")
+	}
+}
+
+func TestInitializeToolWithHighResourceCost(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "expensive-tool",
+		description: "Tool with high resource cost",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		profile:     NewEnforcerProfile(WithImpact(ImpactRead), WithResourceCost(10)),
+	}
+	_ = s.RegisterTool(tool)
+	s.Initialize()
+	if s.GetMCPServer() == nil {
+		t.Error("expected mcpServer")
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		func() bool {
