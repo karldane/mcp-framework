@@ -1022,6 +1022,62 @@ func TestInitializeToolWithHighResourceCost(t *testing.T) {
 	}
 }
 
+func TestInitializeWithApprovalReq(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "approval-tool",
+		description: "Tool requiring approval",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		profile:     NewEnforcerProfile(WithImpact(ImpactWrite), WithApprovalReq(true)),
+	}
+	_ = s.RegisterTool(tool)
+
+	s.Initialize()
+	_, err := s.ExecuteTool(context.Background(), "approval-tool", nil)
+	if err != nil {
+		t.Errorf("approval tool should execute: %v", err)
+	}
+}
+
+func TestServerExecuteToolWithContext(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	tool := &MockToolHandler{
+		name:        "ctx-tool",
+		description: "Tool that uses context",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      TextResult("ok"),
+		profile:     DefaultEnforcerProfile(),
+	}
+	_ = s.RegisterTool(tool)
+
+	ctx := context.WithValue(context.Background(), "key", "value")
+	_, err := s.ExecuteTool(ctx, "ctx-tool", nil)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestNewServerWithAllConfig(t *testing.T) {
+	s := NewServerWithConfig(&Config{
+		Name:           "full-test",
+		Version:        "2.0.0",
+		Instructions:   "Full test server",
+		WriteEnabled:   true,
+		PIIScanEnabled: true,
+		PIIConfig:      &PIIPipelineConfig{SampleSize: 5},
+	})
+	if s.name != "full-test" {
+		t.Error("name mismatch")
+	}
+	if s.version != "2.0.0" {
+		t.Error("version mismatch")
+	}
+	if s.piiPipeline == nil {
+		t.Error("piiPipeline should be set")
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		func() bool {
