@@ -4,25 +4,56 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-
-	"github.com/karldane/go-presidio/presidio"
 )
 
+// ScanPolicy describes how a column should be treated by the PII pipeline.
+// Backends set this on ColumnHint; the framework maps it to presidio internally.
+// Values must remain numerically stable — they are stored in oracle schema cache.
+type ScanPolicy int
+
+const (
+	ScanPolicyDefault          ScanPolicy = 0 // use pipeline default
+	ScanPolicySafe             ScanPolicy = 1 // skip — known safe column type
+	ScanPolicyNameOnly         ScanPolicy = 2 // name heuristic only, no value scan
+	ScanPolicyStrip            ScanPolicy = 3 // strip binary / no scan
+	ScanPolicyTruncateThenScan ScanPolicy = 4 // truncate to MaxLength then scan
+	ScanPolicyFull             ScanPolicy = 5 // force full scan regardless of type
+)
+
+// ColumnHint carries per-column PII scanning metadata from a backend tool to
+// the pipeline. Backends must use this type; they must not import go-presidio.
+type ColumnHint struct {
+	ScanPolicy ScanPolicy
+	MaxLength  int // 0 = use pipeline default (DefaultMaxScanLength)
+}
+
+// ColumnReport is a framework-owned summary of PII treatment for one column.
+type ColumnReport struct {
+	ColumnName     string
+	PIIDetected    bool
+	EntityTypes    []string
+	Treatment      string
+	RowsScanned    int
+	RowsTreated    int
+	OriginalLength int
+	TruncatedAt    int
+}
+
 type ToolResult struct {
-	Data        interface{}                    `json:"data,omitempty"`
-	RawText     string                         `json:"text,omitempty"`
-	ColumnHints map[string]presidio.ColumnHint `json:"_hints,omitempty"`
-	Meta        ResultMeta                     `json:"_meta,omitempty"`
-	IsError     bool                           `json:"is_error,omitempty"`
-	Error       *ToolError                     `json:"error,omitempty"`
+	Data        interface{}           `json:"data,omitempty"`
+	RawText     string                `json:"text,omitempty"`
+	ColumnHints map[string]ColumnHint `json:"_hints,omitempty"`
+	Meta        ResultMeta            `json:"_meta,omitempty"`
+	IsError     bool                  `json:"is_error,omitempty"`
+	Error       *ToolError            `json:"error,omitempty"`
 }
 
 type ResultMeta struct {
-	PIIScanApplied bool                    `json:"pii_scan_applied,omitempty"`
-	ColumnReports  []presidio.ColumnReport `json:"column_reports,omitempty"`
-	Truncations    []TruncationNote        `json:"truncations,omitempty"`
-	SafetyNote     string                  `json:"safety_note,omitempty"`
-	FrameworkVer   string                  `json:"framework_version,omitempty"`
+	PIIScanApplied bool             `json:"pii_scan_applied,omitempty"`
+	ColumnReports  []ColumnReport   `json:"column_reports,omitempty"`
+	Truncations    []TruncationNote `json:"truncations,omitempty"`
+	SafetyNote     string           `json:"safety_note,omitempty"`
+	FrameworkVer   string           `json:"framework_version,omitempty"`
 }
 
 type TruncationNote struct {

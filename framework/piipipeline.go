@@ -8,6 +8,44 @@ import (
 	"github.com/karldane/go-presidio/recognizers"
 )
 
+// toPresidioHints converts framework ColumnHints to the presidio type.
+// This is the only place in the framework that crosses this boundary.
+func toPresidioHints(hints map[string]ColumnHint) map[string]presidio.ColumnHint {
+	if hints == nil {
+		return nil
+	}
+	out := make(map[string]presidio.ColumnHint, len(hints))
+	for col, h := range hints {
+		out[col] = presidio.ColumnHint{
+			ScanPolicy: presidio.ScanPolicy(h.ScanPolicy),
+			MaxLength:  h.MaxLength,
+		}
+	}
+	return out
+}
+
+// fromPresidioReports converts presidio ColumnReports to the framework type.
+func fromPresidioReports(reports []presidio.ColumnReport) []ColumnReport {
+	out := make([]ColumnReport, len(reports))
+	for i, r := range reports {
+		entityStrs := make([]string, len(r.PIIEntities))
+		for j, e := range r.PIIEntities {
+			entityStrs[j] = string(e)
+		}
+		out[i] = ColumnReport{
+			ColumnName:     r.ColumnName,
+			PIIDetected:    r.PIIDetected,
+			EntityTypes:    entityStrs,
+			Treatment:      string(r.Treatment),
+			RowsScanned:    0, // not exposed by presidio
+			RowsTreated:    0, // not exposed by presidio
+			OriginalLength: r.OriginalLength,
+			TruncatedAt:    r.TruncatedAt,
+		}
+	}
+	return out
+}
+
 type PIIPipeline struct {
 	analyzer        *presidio.AnalyzerEngine
 	anonymizer      *presidio.AnonymizerEngine
@@ -104,22 +142,20 @@ func NewPIIPipeline(cfg *PIIPipelineConfig) *PIIPipeline {
 }
 
 func (p *PIIPipeline) applyConfigOperators(cfg *PIIPipelineConfig) {
-	if cfg.DefaultOperator == "" {
-		return
-	}
-
-	switch strings.ToLower(cfg.DefaultOperator) {
-	case "redact":
-		p.defaultOperator = &presidio.RedactOperator{}
-	case "hash":
-		if len(p.hmacKey) > 0 {
-			p.defaultOperator = &presidio.HashOperator{}
-		}
-	case "mask":
-		p.defaultOperator = &presidio.MaskOperator{}
-	case "pseudonymise":
-		if len(p.hmacKey) > 0 {
-			p.defaultOperator = &presidio.PseudonymiseOperator{}
+	if cfg.DefaultOperator != "" {
+		switch strings.ToLower(cfg.DefaultOperator) {
+		case "redact":
+			p.defaultOperator = &presidio.RedactOperator{}
+		case "hash":
+			if len(p.hmacKey) > 0 {
+				p.defaultOperator = &presidio.HashOperator{}
+			}
+		case "mask":
+			p.defaultOperator = &presidio.MaskOperator{}
+		case "pseudonymise":
+			if len(p.hmacKey) > 0 {
+				p.defaultOperator = &presidio.PseudonymiseOperator{}
+			}
 		}
 	}
 
@@ -231,19 +267,19 @@ func (p *PIIPipeline) processStructuredData(result ToolResult) ToolResult {
 		return result
 	}
 
-	processedRows, columnReports := p.structured.ProcessRows(rows, result.ColumnHints)
+	processedRows, presidioReports := p.structured.ProcessRows(rows, toPresidioHints(result.ColumnHints))
 
 	result.Data = processedRows
-	result.Meta.ColumnReports = columnReports
+	result.Meta.ColumnReports = fromPresidioReports(presidioReports)
 
 	var piiColumns []string
 	var truncatedColumns []TruncationNote
 
-	for _, report := range columnReports {
+	for _, report := range result.Meta.ColumnReports {
 		if report.PIIDetected {
 			piiColumns = append(piiColumns, report.ColumnName)
 		}
-		if report.Treatment == presidio.TreatmentTruncated {
+		if report.Treatment == string(presidio.TreatmentTruncated) {
 			truncatedColumns = append(truncatedColumns, TruncationNote{
 				Column:         report.ColumnName,
 				OriginalLength: report.OriginalLength,
