@@ -635,6 +635,19 @@ func TestWrapLegacyDescription(t *testing.T) {
 	}
 }
 
+func TestWrapLegacyName(t *testing.T) {
+	legacy := &MockLegacyTool{
+		name:        "my-tool",
+		description: "Desc",
+		schema:      mcp.ToolInputSchema{Type: "object"},
+		result:      "hello",
+	}
+	wrapped := WrapLegacy(legacy)
+	if wrapped.Name() != "my-tool" {
+		t.Errorf("expected 'my-tool', got %s", wrapped.Name())
+	}
+}
+
 func TestWrapLegacySchema(t *testing.T) {
 	legacy := &MockLegacyTool{
 		name:        "legacy",
