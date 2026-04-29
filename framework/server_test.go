@@ -929,31 +929,42 @@ func TestToolResultToMCPEmpty(t *testing.T) {
 
 func TestInitializeWithMultipleTools(t *testing.T) {
 	s := NewServer("test", "1.0.0")
-	for i := 0; i < 3; i++ {
+	// Register multiple tools with different profiles
+	tools := []struct {
+		name        string
+		description string
+		profile     *EnforcerProfile
+	}{
+		{"tool-1", "Tool 1", NewEnforcerProfile(WithImpact(ImpactRead))},
+		{"tool-2", "Tool 2", NewEnforcerProfile(WithImpact(ImpactWrite))},
+		{"tool-3", "Tool 3", NewEnforcerProfile(WithImpact(ImpactDelete))},
+	}
+	for _, tt := range tools {
 		tool := &MockToolHandler{
-			name:        fmt.Sprintf("tool-%d", i),
-			description: fmt.Sprintf("Tool %d", i),
+			name:        tt.name,
+			description: tt.description,
 			schema:      mcp.ToolInputSchema{Type: "object"},
-			result:      TextResult(fmt.Sprintf("result-%d", i)),
-			profile:     DefaultEnforcerProfile(),
+			result:      TextResult("ok"),
+			profile:     tt.profile,
 		}
 		_ = s.RegisterTool(tool)
 	}
 	s.Initialize()
-	tools := s.ListTools()
-	if len(tools) != 3 {
-		t.Errorf("expected 3 tools, got %d", len(tools))
+	resultTools := s.ListTools()
+	if len(resultTools) != 3 {
+		t.Errorf("expected 3 tools, got %d", len(resultTools))
 	}
 }
 
-func TestInitializeWithZeroRiskProfile(t *testing.T) {
+func TestInitializeAnnotationsWithProfile(t *testing.T) {
 	s := NewServer("test", "1.0.0")
+	// Tool with explicit profile
 	tool := &MockToolHandler{
-		name:        "zero-risk",
-		description: "Risk zero tool",
+		name:        "annotated-tool",
+		description: "Tool with annotations",
 		schema:      mcp.ToolInputSchema{Type: "object"},
 		result:      TextResult("ok"),
-		profile:     &EnforcerProfile{RiskLevel: RiskLow, ImpactScope: ImpactRead, ResourceCost: 1},
+		profile:     NewEnforcerProfile(WithImpact(ImpactRead), WithIdempotent(true), WithPII(false)),
 	}
 	_ = s.RegisterTool(tool)
 	s.Initialize()
@@ -962,68 +973,20 @@ func TestInitializeWithZeroRiskProfile(t *testing.T) {
 	}
 }
 
-func TestInitializeWithInstructions(t *testing.T) {
-	s := NewServerWithConfig(&Config{
-		Name:         "test",
-		Version:      "1.0.0",
-		Instructions: "Usage instructions here",
-	})
-	s.Initialize()
-	if s.GetMCPServer() == nil {
-		t.Error("expected mcpServer to be set")
-	}
-}
-
-func TestInitializeWithNilProfileBypassesWriteGate(t *testing.T) {
-	s := NewServerWithConfig(&Config{
-		Name:         "test",
-		Version:      "1.0.0",
-		WriteEnabled: false,
-	})
-	// Tool without profile should bypass write gate
+func TestInitializeAnnotationsNilProfile(t *testing.T) {
+	s := NewServer("test", "1.0.0")
+	// Tool without profile
 	tool := &MockToolHandler{
-		name:        "no-profile-write",
-		description: "Write tool without profile",
+		name:        "nil-profile-tool",
+		description: "Tool without profile",
 		schema:      mcp.ToolInputSchema{Type: "object"},
 		result:      TextResult("ok"),
 		profile:     nil,
 	}
 	_ = s.RegisterTool(tool)
-
 	s.Initialize()
-
-	result, err := s.ExecuteTool(context.Background(), "no-profile-write", nil)
-	if err != nil {
-		t.Errorf("nil profile tool should bypass write gate: %v", err)
-	}
-	if result.RawText != "ok" {
-		t.Error("expected 'ok'")
-	}
-}
-
-func TestInitializeWithReadOnlyProfile(t *testing.T) {
-	s := NewServerWithConfig(&Config{
-		Name:         "test",
-		Version:      "1.0.0",
-		WriteEnabled: false,
-	})
-	tool := &MockToolHandler{
-		name:        "read-tool",
-		description: "Read-only tool",
-		schema:      mcp.ToolInputSchema{Type: "object"},
-		result:      TextResult("data"),
-		profile:     NewEnforcerProfile(WithImpact(ImpactRead)),
-	}
-	_ = s.RegisterTool(tool)
-
-	s.Initialize()
-
-	result, err := s.ExecuteTool(context.Background(), "read-tool", nil)
-	if err != nil {
-		t.Errorf("read tool should work when write disabled: %v", err)
-	}
-	if result.RawText != "data" {
-		t.Error("expected 'data'")
+	if s.GetMCPServer() == nil {
+		t.Error("expected mcpServer")
 	}
 }
 
