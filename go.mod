@@ -3,12 +3,10 @@ module github.com/karldane/mcp-framework
 go 1.25
 
 require (
-	github.com/karldane/go-presidio v0.0.0
+	github.com/karldane/go-presidio v0.0.1
 	github.com/mark3labs/mcp-go v0.45.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 )
-
-replace github.com/karldane/go-presidio => ../go-presidio
 
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect

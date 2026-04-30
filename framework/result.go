@@ -24,7 +24,8 @@ const (
 // the pipeline. Backends must use this type; they must not import go-presidio.
 type ColumnHint struct {
 	ScanPolicy ScanPolicy
-	MaxLength  int // 0 = use pipeline default (DefaultMaxScanLength)
+	MaxLength  int    // 0 = use pipeline default (DefaultMaxScanLength)
+	EntityType string // optional: force entity type (e.g., "PERSON", "EMAIL_ADDRESS")
 }
 
 // ColumnReport is a framework-owned summary of PII treatment for one column.
