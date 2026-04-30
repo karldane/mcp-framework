@@ -19,6 +19,7 @@ func toPresidioHints(hints map[string]ColumnHint) map[string]presidio.ColumnHint
 		out[col] = presidio.ColumnHint{
 			ScanPolicy: presidio.ScanPolicy(h.ScanPolicy),
 			MaxLength:  h.MaxLength,
+			OracleType: h.EntityType,
 		}
 	}
 	return out
