@@ -21,6 +21,3 @@ require (
 	golang.org/x/text v0.14.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-// Use local go-presidio with Decrypt and Key field
-replace github.com/karldane/go-presidio => ../go-presidio
