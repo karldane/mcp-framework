@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"sort"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -93,59 +92,6 @@ func (w *autoFlushingWriter) Write(p []byte) (n int, err error) {
 }
 
 // formatDataResult serialises a ToolResult whose Data field is set.
-func formatDataResult(result ToolResult) (string, error) {
-	rows, ok := result.Data.([]map[string]interface{})
-	if !ok {
-		b, err := json.Marshal(result.Data)
-		if err != nil {
-			return "", err
-		}
-		return string(b), nil
-	}
-
-	if len(rows) == 0 {
-		text := "0 rows returned."
-		if result.Meta.SafetyNote != "" {
-			text += "\n\n[PII: " + result.Meta.SafetyNote + "]"
-		}
-		return text, nil
-	}
-
-	cols := make([]string, 0, len(rows[0]))
-	for col := range rows[0] {
-		cols = append(cols, col)
-	}
-	sort.Strings(cols)
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Rows: %d\n\n", len(rows)))
-	sb.WriteString(strings.Join(cols, " | "))
-	sb.WriteString("\n")
-	sb.WriteString(strings.Repeat("-", 60))
-	sb.WriteString("\n")
-
-	for _, row := range rows {
-		vals := make([]string, len(cols))
-		for i, col := range cols {
-			if v, ok := row[col]; ok && v != nil {
-				vals[i] = fmt.Sprintf("%v", v)
-			} else {
-				vals[i] = "NULL"
-			}
-		}
-		sb.WriteString(strings.Join(vals, " | "))
-		sb.WriteString("\n")
-	}
-
-	if result.Meta.SafetyNote != "" {
-		sb.WriteString("\n[PII: ")
-		sb.WriteString(result.Meta.SafetyNote)
-		sb.WriteString("]\n")
-	}
-
-	return sb.String(), nil
-}
-
 // NewServer creates a new MCP server with the given name and version.
 // Writes are enabled by default; use SetWriteEnabled(false) or pass
 // WriteEnabled: false in Config to restrict to readonly mode.
@@ -251,6 +197,15 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]i
 		return ToolResult{}, &ValidationError{Stage: "input", Tool: name, Err: err}
 	}
 
+	// Inbound: resolve PII tokens in args before handler sees them
+	if s.piiEnabled && s.piiPipeline != nil {
+		var resolveErr error
+		args, resolveErr = s.piiPipeline.Resolve(args)
+		if resolveErr != nil {
+			return ToolResult{}, fmt.Errorf("pii resolve: %w", resolveErr)
+		}
+	}
+
 	// Call handler with real args for dynamic profile
 	result, err := rt.handler.Handle(callCtx, args)
 	if err != nil {
@@ -349,6 +304,15 @@ func (s *Server) Initialize() {
 				return mcp.NewToolResultError(fmt.Sprintf("tool %q input validation: %v", toolName, err)), nil
 			}
 
+			// Inbound: resolve PII tokens in args before handler sees them
+			if s.piiEnabled && s.piiPipeline != nil {
+				var resolveErr error
+				args, resolveErr = s.piiPipeline.Resolve(args)
+				if resolveErr != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("pii resolve: %v", resolveErr)), nil
+				}
+			}
+
 			// Call handler with real args for dynamic profile
 			result, err := toolHandler.Handle(callCtx, args)
 			if err != nil {
@@ -371,36 +335,149 @@ func (s *Server) Initialize() {
 	}
 }
 
+// structuredQueryResult is the shape of CallToolResult.StructuredContent.
+type structuredQueryResult struct {
+	Rows    []map[string]interface{} `json:"rows"`
+	Columns []columnMeta             `json:"columns"`
+	Meta    outputMeta               `json:"meta"`
+}
+
+type columnMeta struct {
+	Name        string   `json:"name"`
+	DataType    string   `json:"data_type"`
+	ScanPolicy  string   `json:"scan_policy"`
+	PIIDetected bool     `json:"pii_detected"`
+	EntityTypes []string `json:"entity_types"`
+	Treatment   string   `json:"treatment"`
+	RowsScanned int      `json:"rows_scanned"`
+	RowsTreated int      `json:"rows_treated"`
+}
+
+type outputMeta struct {
+	RowCount       int  `json:"row_count"`
+	PIIScanApplied bool `json:"pii_scan_applied"`
+	ColumnsTreated int  `json:"columns_treated"`
+}
+
 // toolResultToMCP converts a framework ToolResult to an MCP CallToolResult
 func toolResultToMCP(result ToolResult) *mcp.CallToolResult {
 	if result.IsError {
 		return mcp.NewToolResultError(result.RawText)
 	}
 
-	if result.RawText != "" {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				mcp.TextContent{
-					Type: "text",
-					Text: result.RawText,
-				},
-			},
-		}
-	}
+	var dataText string
+	var rows []map[string]interface{}
 
-	if result.Data != nil {
-		text, err := formatDataResult(result)
+	if result.RawText != "" {
+		dataText = result.RawText
+	} else if result.Data != nil {
+		if r, ok := result.Data.([]map[string]interface{}); ok {
+			rows = r
+		}
+		b, err := json.Marshal(result.Data)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("result serialisation failed: %v", err))
 		}
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				mcp.TextContent{Type: "text", Text: text},
+		dataText = string(b)
+	}
+
+	if dataText == "" {
+		return mcp.NewToolResultError("empty tool result")
+	}
+
+	contents := []mcp.Content{
+		mcp.TextContent{Type: "text", Text: dataText},
+	}
+
+	if result.Meta.PIIScanApplied && len(result.Meta.ColumnReports) > 0 {
+		contents = append(contents, mcp.TextContent{
+			Type: "text",
+			Text: formatPIIAudit(result.Meta),
+		})
+	}
+
+	var structured *structuredQueryResult
+	if rows != nil || len(result.Meta.ColumnReports) > 0 {
+		cols := make([]columnMeta, 0, len(result.Meta.ColumnReports))
+		treated := 0
+		for _, cr := range result.Meta.ColumnReports {
+			if cr.PIIDetected {
+				treated++
+			}
+			cols = append(cols, columnMeta{
+				Name:        cr.ColumnName,
+				DataType:    cr.DataType,
+				ScanPolicy:  cr.ScanPolicyName,
+				PIIDetected: cr.PIIDetected,
+				EntityTypes: cr.EntityTypes,
+				Treatment:   cr.Treatment,
+				RowsScanned: cr.RowsScanned,
+				RowsTreated: cr.RowsTreated,
+			})
+		}
+		rowCount := 0
+		if rows != nil {
+			rowCount = len(rows)
+		}
+		structured = &structuredQueryResult{
+			Rows:    rows,
+			Columns: cols,
+			Meta: outputMeta{
+				RowCount:       rowCount,
+				PIIScanApplied: result.Meta.PIIScanApplied,
+				ColumnsTreated: treated,
 			},
 		}
 	}
 
-	return mcp.NewToolResultError("empty tool result")
+	res := &mcp.CallToolResult{Content: contents}
+	if structured != nil {
+		res.StructuredContent = structured
+	}
+	return res
+}
+
+// formatPIIAudit renders the per-column PII report as a readable text block.
+func formatPIIAudit(meta ResultMeta) string {
+	var sb strings.Builder
+	sb.WriteString("PII Scan Report\n")
+	sb.WriteString(strings.Repeat("─", 56) + "\n")
+	sb.WriteString(fmt.Sprintf("%-20s  %-16s  %-22s  %s\n",
+		"Column", "Data Type", "Entity", "Rows"))
+	sb.WriteString(strings.Repeat("─", 56) + "\n")
+
+	for _, cr := range meta.ColumnReports {
+		if cr.ScanPolicyName == "safe" || cr.ScanPolicyName == "strip" {
+			sb.WriteString(fmt.Sprintf("%-20s  %-16s  %-22s  %s\n",
+				cr.ColumnName, cr.DataType, "—", "not scanned ["+cr.ScanPolicyName+"]"))
+			continue
+		}
+		if !cr.PIIDetected {
+			sb.WriteString(fmt.Sprintf("%-20s  %-16s  %-22s  %s\n",
+				cr.ColumnName, cr.DataType, "—", "no pii detected"))
+			continue
+		}
+		entities := strings.Join(cr.EntityTypes, ", ")
+		policyNote := ""
+		if cr.ScanPolicyName == "name_only" {
+			policyNote = "  [name_only]"
+		}
+		rowNote := fmt.Sprintf("%d/%d rows  %s%s",
+			cr.RowsTreated, cr.RowsScanned, cr.Treatment, policyNote)
+		sb.WriteString(fmt.Sprintf("%-20s  %-16s  %-22s  %s\n",
+			cr.ColumnName, cr.DataType, entities, rowNote))
+	}
+
+	if len(meta.Truncations) > 0 {
+		sb.WriteString("\nTruncations\n")
+		sb.WriteString(strings.Repeat("─", 56) + "\n")
+		for _, t := range meta.Truncations {
+			sb.WriteString(fmt.Sprintf("%-20s  original: %d chars  truncated at: %d\n",
+				t.Column, t.OriginalLength, t.TruncatedAt))
+		}
+	}
+
+	return sb.String()
 }
 
 // Start begins serving MCP requests via stdio (blocking).

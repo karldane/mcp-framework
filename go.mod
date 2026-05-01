@@ -1,6 +1,6 @@
 module github.com/karldane/mcp-framework
 
-go 1.25
+go 1.25.0
 
 require (
 	github.com/karldane/go-presidio v0.0.1
@@ -13,6 +13,7 @@ require (
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
+	github.com/jacobsa/crypto v0.0.0-20190317225127-9f44e2d11115 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
@@ -20,3 +21,6 @@ require (
 	golang.org/x/text v0.14.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// Use local go-presidio with Decrypt and Key field
+replace github.com/karldane/go-presidio => ../go-presidio

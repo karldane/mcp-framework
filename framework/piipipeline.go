@@ -1,6 +1,7 @@
 package framework
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -141,9 +142,16 @@ func (p *PIIPipeline) applyConfigOperators(cfg *PIIPipelineConfig) {
 		case "mask":
 			p.defaultOperator = &presidio.MaskOperator{}
 		case "pseudonymise":
-			if len(p.hmacKey) > 0 {
-				p.defaultOperator = &presidio.PseudonymiseOperator{}
+			if len(p.hmacKey) == 0 {
+				break
 			}
+			if len(p.hmacKey) != 32 && len(p.hmacKey) != 64 {
+				panic(fmt.Sprintf(
+					"pseudonymise operator requires a 32 or 64 byte key (AES-128-SIV or AES-256-SIV); %s is %d bytes",
+					cfg.HMACKeyEnv, len(p.hmacKey),
+				))
+			}
+			p.defaultOperator = &presidio.PseudonymiseOperator{Key: p.hmacKey}
 		}
 	}
 
@@ -159,9 +167,16 @@ func (p *PIIPipeline) applyConfigOperators(cfg *PIIPipelineConfig) {
 		case "mask":
 			p.entityOperators[entityType] = &presidio.MaskOperator{}
 		case "pseudonymise":
-			if len(p.hmacKey) > 0 {
-				p.entityOperators[entityType] = &presidio.PseudonymiseOperator{}
+			if len(p.hmacKey) == 0 {
+				break
 			}
+			if len(p.hmacKey) != 32 && len(p.hmacKey) != 64 {
+				panic(fmt.Sprintf(
+					"pseudonymise operator requires a 32 or 64 byte key (AES-128-SIV or AES-256-SIV); %s is %d bytes",
+					cfg.HMACKeyEnv, len(p.hmacKey),
+				))
+			}
+			p.entityOperators[entityType] = &presidio.PseudonymiseOperator{Key: p.hmacKey}
 		}
 	}
 }
@@ -195,6 +210,40 @@ func (p *PIIPipeline) buildOperatorMap() map[presidio.EntityType]presidio.Operat
 	}
 
 	return operators
+}
+
+// Resolve scans args for PII tokens and decrypts them in-place.
+// A PII token is any string value with the prefix "pii:".
+// Non-string values and non-token strings are returned unchanged.
+// If the pipeline is not configured with a PseudonymiseOperator, all args
+// pass through unchanged — this is correct, since no tokens will have been produced.
+// Returns an error if any token fails AES-SIV authentication.
+func (p *PIIPipeline) Resolve(args map[string]interface{}) (map[string]interface{}, error) {
+	if len(args) == 0 {
+		return args, nil
+	}
+
+	// Only PseudonymiseOperator produces reversible tokens.
+	// If the default operator is not pseudonymise, pass through unchanged.
+	op, isPseudonymise := p.defaultOperator.(*presidio.PseudonymiseOperator)
+	if !isPseudonymise {
+		return args, nil
+	}
+
+	resolved := make(map[string]interface{}, len(args))
+	for k, v := range args {
+		str, ok := v.(string)
+		if !ok || !strings.HasPrefix(str, "pii:") {
+			resolved[k] = v
+			continue
+		}
+		plaintext, err := op.Decrypt(str)
+		if err != nil {
+			return nil, fmt.Errorf("pii resolve: arg %q: %w", k, err)
+		}
+		resolved[k] = plaintext
+	}
+	return resolved, nil
 }
 
 func (p *PIIPipeline) Process(result ToolResult) ToolResult {
@@ -250,33 +299,77 @@ func (p *PIIPipeline) processStructuredData(result ToolResult) ToolResult {
 		result.Meta.SafetyNote = "data not processable as rows"
 		return result
 	}
-
 	if len(rows) == 0 {
 		return result
 	}
 
 	processedRows, presidioReports := p.structured.ProcessRows(rows, toPresidioHints(result.ColumnHints))
-
 	result.Data = processedRows
-	result.Meta.ColumnReports = fromPresidioReports(presidioReports)
 
-	var piiColumns []string
-	var truncatedColumns []TruncationNote
-
-	for _, report := range result.Meta.ColumnReports {
-		if report.PIIDetected {
-			piiColumns = append(piiColumns, report.ColumnName)
+	columnReports := make([]ColumnReport, 0, len(presidioReports))
+	for _, pr := range presidioReports {
+		cr := ColumnReport{
+			ColumnName:     pr.ColumnName,
+			PIIDetected:    pr.PIIDetected,
+			Treatment:      string(pr.Treatment),
+			OriginalLength: pr.OriginalLength,
+			TruncatedAt:    pr.TruncatedAt,
 		}
-		if report.Treatment == string(presidio.TreatmentTruncated) {
-			truncatedColumns = append(truncatedColumns, TruncationNote{
-				Column:         report.ColumnName,
-				OriginalLength: report.OriginalLength,
-				TruncatedAt:    report.TruncatedAt,
+
+		for _, et := range pr.PIIEntities {
+			cr.EntityTypes = append(cr.EntityTypes, string(et))
+		}
+		if cr.EntityTypes == nil {
+			cr.EntityTypes = []string{}
+		}
+
+		if hint, ok := result.ColumnHints[pr.ColumnName]; ok {
+			cr.DataType = hint.DataType
+			cr.ScanPolicyName = scanPolicyName(int(hint.ScanPolicy))
+		}
+
+		if cr.PIIDetected {
+			cr.RowsScanned = len(rows)
+			cr.RowsTreated = len(rows)
+		}
+
+		columnReports = append(columnReports, cr)
+	}
+
+	reportedCols := make(map[string]bool, len(columnReports))
+	for _, cr := range columnReports {
+		reportedCols[cr.ColumnName] = true
+	}
+	for colName, hint := range result.ColumnHints {
+		if !reportedCols[colName] {
+			columnReports = append(columnReports, ColumnReport{
+				ColumnName:     colName,
+				PIIDetected:    false,
+				EntityTypes:    []string{},
+				DataType:       hint.DataType,
+				ScanPolicyName: scanPolicyName(int(hint.ScanPolicy)),
 			})
 		}
 	}
 
+	result.Meta.ColumnReports = columnReports
+
+	var piiColumns []string
+	var truncatedColumns []TruncationNote
+	for _, cr := range columnReports {
+		if cr.PIIDetected {
+			piiColumns = append(piiColumns, cr.ColumnName)
+		}
+		if cr.TruncatedAt > 0 {
+			truncatedColumns = append(truncatedColumns, TruncationNote{
+				Column:         cr.ColumnName,
+				OriginalLength: cr.OriginalLength,
+				TruncatedAt:    cr.TruncatedAt,
+			})
+		}
+	}
 	result.Meta.Truncations = truncatedColumns
+	result.Meta.PIIScanApplied = true
 
 	if len(piiColumns) == 0 {
 		result.Meta.SafetyNote = "no pii detected in structured data"
@@ -285,4 +378,22 @@ func (p *PIIPipeline) processStructuredData(result ToolResult) ToolResult {
 	}
 
 	return result
+}
+
+// scanPolicyName returns the human-readable name for a ScanPolicy constant.
+func scanPolicyName(policy int) string {
+	switch ScanPolicy(policy) {
+	case ScanPolicySafe:
+		return "safe"
+	case ScanPolicyFull:
+		return "full"
+	case ScanPolicyNameOnly:
+		return "name_only"
+	case ScanPolicyTruncateThenScan:
+		return "truncate_then_scan"
+	case ScanPolicyStrip:
+		return "strip"
+	default:
+		return "default"
+	}
 }

@@ -497,61 +497,58 @@ func TestAssertToolCompliant(t *testing.T) {
 	AssertToolCompliant(t, tool, map[string]interface{}{})
 }
 
-func TestFormatDataResultWithRows(t *testing.T) {
+func TestToolResultToMCPWithRows(t *testing.T) {
 	result := ToolResult{
 		Data: []map[string]interface{}{
 			{"name": "Alice", "age": "30"},
 			{"name": "Bob", "age": "25"},
 		},
 	}
-	text, err := formatDataResult(result)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	mcpResult := toolResultToMCP(result)
+	if len(mcpResult.Content) == 0 {
+		t.Error("expected non-empty content")
 	}
-	if len(text) == 0 {
-		t.Error("expected non-empty text")
+	text := mcpResult.Content[0].(mcp.TextContent).Text
+	if !contains(text, "Alice") || !contains(text, "Bob") {
+		t.Error("expected row data in output")
 	}
 }
 
-func TestFormatDataResultEmptyRows(t *testing.T) {
+func TestToolResultToMCPEmptyRows(t *testing.T) {
 	result := ToolResult{
 		Data: []map[string]interface{}{},
 	}
-	text, err := formatDataResult(result)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if text == "" {
-		t.Error("expected non-empty text")
+	mcpResult := toolResultToMCP(result)
+	if len(mcpResult.Content) == 0 {
+		t.Error("expected non-empty content")
 	}
 }
 
-func TestFormatDataResultWithSafetyNote(t *testing.T) {
+func TestToolResultToMCPWithPIIScan(t *testing.T) {
 	result := ToolResult{
 		Data: []map[string]interface{}{
 			{"email": "test@example.com"},
 		},
-		Meta: ResultMeta{SafetyNote: "pii detected"},
+		Meta: ResultMeta{
+			PIIScanApplied: true,
+			ColumnReports: []ColumnReport{
+				{ColumnName: "email", PIIDetected: true, EntityTypes: []string{"EMAIL_ADDRESS"}, Treatment: "redact"},
+			},
+		},
 	}
-	text, err := formatDataResult(result)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if text == "" {
-		t.Error("expected non-empty text")
+	mcpResult := toolResultToMCP(result)
+	if len(mcpResult.Content) < 2 {
+		t.Error("expected PII audit in content[1]")
 	}
 }
 
-func TestFormatDataResultNonSlice(t *testing.T) {
+func TestToolResultToMCPNonSlice(t *testing.T) {
 	result := ToolResult{
 		Data: map[string]interface{}{"key": "value"},
 	}
-	text, err := formatDataResult(result)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if text == "" {
-		t.Error("expected non-empty text")
+	mcpResult := toolResultToMCP(result)
+	if len(mcpResult.Content) == 0 {
+		t.Error("expected non-empty content")
 	}
 }
 
@@ -1133,38 +1130,33 @@ func TestServerExecuteToolWithPIIPipeline(t *testing.T) {
 	}
 }
 
-func TestFormatDataResultWithRowsSorted(t *testing.T) {
+func TestToolResultToMCPWithRowsSorted(t *testing.T) {
 	result := ToolResult{
 		Data: []map[string]interface{}{
 			{"zebra": "c", "alpha": "a", "beta": "b"},
 		},
 	}
-	text, err := formatDataResult(result)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Columns should be sorted alphabetically
+	mcpResult := toolResultToMCP(result)
+	text := mcpResult.Content[0].(mcp.TextContent).Text
 	if !contains(text, "alpha") {
-		t.Error("expected alpha column in output")
+		t.Error("expected alpha in JSON output")
 	}
 }
 
-func TestFormatDataResultWithNullValue(t *testing.T) {
+func TestToolResultToMCPWithNullValue(t *testing.T) {
 	result := ToolResult{
 		Data: []map[string]interface{}{
 			{"name": nil, "age": 30},
 		},
 	}
-	text, err := formatDataResult(result)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !contains(text, "NULL") {
-		t.Error("expected NULL for nil value")
+	mcpResult := toolResultToMCP(result)
+	text := mcpResult.Content[0].(mcp.TextContent).Text
+	if !contains(text, "null") {
+		t.Error("expected null for nil value in JSON")
 	}
 }
 
-func TestFormatDataResultMultipleRows(t *testing.T) {
+func TestToolResultToMCPMultipleRows(t *testing.T) {
 	result := ToolResult{
 		Data: []map[string]interface{}{
 			{"a": "1", "b": "2", "c": "3"},
@@ -1172,12 +1164,10 @@ func TestFormatDataResultMultipleRows(t *testing.T) {
 			{"a": "7", "b": "8", "c": "9"},
 		},
 	}
-	text, err := formatDataResult(result)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !contains(text, "Rows: 3") {
-		t.Error("expected 'Rows: 3' in output")
+	mcpResult := toolResultToMCP(result)
+	text := mcpResult.Content[0].(mcp.TextContent).Text
+	if !contains(text, `"a":"1"`) {
+		t.Error("expected row data in JSON output")
 	}
 }
 

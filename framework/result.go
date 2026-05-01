@@ -26,6 +26,7 @@ type ColumnHint struct {
 	ScanPolicy ScanPolicy
 	MaxLength  int    // 0 = use pipeline default (DefaultMaxScanLength)
 	EntityType string // optional: force entity type (e.g., "PERSON", "EMAIL_ADDRESS")
+	DataType   string // e.g. "VARCHAR2(50)", "NUMBER" — populated by backend
 }
 
 // ColumnReport is a framework-owned summary of PII treatment for one column.
@@ -34,6 +35,8 @@ type ColumnReport struct {
 	PIIDetected    bool
 	EntityTypes    []string
 	Treatment      string
+	DataType       string // propagated from ColumnHint.DataType
+	ScanPolicyName string // human-readable: "safe", "full", "name_only", etc.
 	RowsScanned    int
 	RowsTreated    int
 	OriginalLength int
