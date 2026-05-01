@@ -40,6 +40,10 @@ type ToolHandler interface {
 	// Schema returns the JSON schema for tool parameters
 	Schema() mcp.ToolInputSchema
 
+	// OutputSchema returns the JSON schema for tool output, or nil if not defined.
+	// When non-nil, the server will include outputSchema in the tool definition.
+	OutputSchema() *mcp.ToolOutputSchema
+
 	// Handle executes the tool with the provided arguments
 	Handle(ctx CallContext, args map[string]interface{}) (ToolResult, error)
 
@@ -274,6 +278,10 @@ func (s *Server) Initialize() {
 					"enforcer_profile": profile,
 				},
 			},
+		}
+
+		if outputSchema := handler.OutputSchema(); outputSchema != nil {
+			tool.OutputSchema = *outputSchema
 		}
 
 		// Store values needed in closure

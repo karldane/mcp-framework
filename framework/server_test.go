@@ -63,6 +63,10 @@ func (m *MockToolHandler) EnforcerProfile(args map[string]interface{}) *Enforcer
 	return DefaultEnforcerProfile()
 }
 
+func (m *MockToolHandler) OutputSchema() *mcp.ToolOutputSchema {
+	return nil
+}
+
 func writeTool(name string) *MockToolHandler {
 	return &MockToolHandler{
 		name:   name,

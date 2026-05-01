@@ -43,6 +43,10 @@ func (l *legacyWrapper) EnforcerProfile(args map[string]interface{}) *EnforcerPr
 	return l.inner.GetEnforcerProfile()
 }
 
+func (l *legacyWrapper) OutputSchema() *mcp.ToolOutputSchema {
+	return nil
+}
+
 func (l *legacyWrapper) Handle(ctx CallContext, args map[string]interface{}) (ToolResult, error) {
 	text, err := l.inner.Handle(ctx.Context, args)
 	if err != nil {

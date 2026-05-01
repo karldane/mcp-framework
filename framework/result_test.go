@@ -118,6 +118,10 @@ func (m *mockToolHandlerWithTypedResult) EnforcerProfile(args map[string]interfa
 	return DefaultEnforcerProfile()
 }
 
+func (m *mockToolHandlerWithTypedResult) OutputSchema() *mcp.ToolOutputSchema {
+	return nil
+}
+
 func TestToolHandlerInterfaceReturnsToolResult(t *testing.T) {
 	handler := &mockToolHandlerWithTypedResult{
 		name:        "test-tool",

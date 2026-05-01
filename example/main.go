@@ -44,6 +44,10 @@ func (t *HelloTool) EnforcerProfile(args map[string]interface{}) *framework.Enfo
 	return framework.DefaultEnforcerProfile()
 }
 
+func (t *HelloTool) OutputSchema() *mcp.ToolOutputSchema {
+	return nil
+}
+
 // CalculatorTool demonstrates a more complex example
 type CalculatorTool struct{}
 
@@ -108,6 +112,10 @@ func (t *CalculatorTool) Handle(ctx framework.CallContext, args map[string]inter
 
 func (t *CalculatorTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
 	return framework.DefaultEnforcerProfile()
+}
+
+func (t *CalculatorTool) OutputSchema() *mcp.ToolOutputSchema {
+	return nil
 }
 
 func main() {
