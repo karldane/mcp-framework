@@ -437,6 +437,51 @@ func TestResolveNilPipeline(t *testing.T) {
 	// This validates that dispatchTool with nil pipeline passes args through unchanged
 }
 
+func TestResolveDecryptsNestedParamsMap(t *testing.T) {
+	key := makeTestKey(t, 32)
+	os.Setenv("TEST_PII_KEY_NESTED", string(key))
+	defer os.Unsetenv("TEST_PII_KEY_NESTED")
+
+	cfg := &PIIPipelineConfig{
+		HMACKeyEnv:      "TEST_PII_KEY_NESTED",
+		DefaultOperator: "pseudonymise",
+	}
+	p := NewPIIPipeline(cfg)
+
+	// Encrypt an email via Process
+	result := p.Process(ToolResult{RawText: "alice@example.com"})
+	token := ""
+	if idx := strings.Index(result.RawText, "pii:"); idx >= 0 {
+		token = result.RawText[idx:]
+	}
+	if token == "" {
+		t.Fatal("could not find pii token in result")
+	}
+
+	// Token inside a nested params map (simulating oracle_execute_read params argument)
+	args := map[string]interface{}{
+		"sql": "SELECT * FROM users WHERE email = :email",
+		"params": map[string]interface{}{
+			"email": token,
+		},
+	}
+	resolved, err := p.Resolve(args)
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	params, ok := resolved["params"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected params to be map[string]interface{}")
+	}
+	if params["email"] != "alice@example.com" {
+		t.Errorf("expected 'alice@example.com', got: %v", params["email"])
+	}
+	if resolved["sql"] != "SELECT * FROM users WHERE email = :email" {
+		t.Errorf("sql should be unchanged, got: %v", resolved["sql"])
+	}
+}
+
 func TestRoundTrip(t *testing.T) {
 	key := makeTestKey(t, 32)
 	os.Setenv("TEST_PII_KEY5", string(key))

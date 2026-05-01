@@ -232,16 +232,27 @@ func (p *PIIPipeline) Resolve(args map[string]interface{}) (map[string]interface
 
 	resolved := make(map[string]interface{}, len(args))
 	for k, v := range args {
-		str, ok := v.(string)
-		if !ok || !strings.HasPrefix(str, "pii:") {
+		switch val := v.(type) {
+		case string:
+			if strings.HasPrefix(val, "pii:") {
+				plaintext, err := op.Decrypt(val)
+				if err != nil {
+					return nil, fmt.Errorf("pii resolve: arg %q: %w", k, err)
+				}
+				resolved[k] = plaintext
+			} else {
+				resolved[k] = val
+			}
+		case map[string]interface{}:
+			// Recurse one level for nested param maps (e.g., params: {surname: "pii:..."})
+			inner, err := p.Resolve(val)
+			if err != nil {
+				return nil, fmt.Errorf("pii resolve: nested arg %q: %w", k, err)
+			}
+			resolved[k] = inner
+		default:
 			resolved[k] = v
-			continue
 		}
-		plaintext, err := op.Decrypt(str)
-		if err != nil {
-			return nil, fmt.Errorf("pii resolve: arg %q: %w", k, err)
-		}
-		resolved[k] = plaintext
 	}
 	return resolved, nil
 }
