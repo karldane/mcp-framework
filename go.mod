@@ -3,7 +3,7 @@ module github.com/karldane/mcp-framework
 go 1.25.0
 
 require (
-	github.com/karldane/go-presidio v0.0.1
+	github.com/karldane/go-presidio v0.0.2
 	github.com/mark3labs/mcp-go v0.45.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 )
