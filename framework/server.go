@@ -55,6 +55,16 @@ type ToolHandler interface {
 	EnforcerProfile(args map[string]interface{}) *EnforcerProfile
 }
 
+// BaseTool provides default implementations for optional methods.
+// Embed this struct in your tool to get default no-op implementations.
+type BaseTool struct{}
+
+// OutputSchema returns nil (no output schema defined).
+// Override this method if your tool returns structured data.
+func (BaseTool) OutputSchema() *mcp.ToolOutputSchema {
+	return nil
+}
+
 // Config holds server configuration
 type Config struct {
 	Name           string

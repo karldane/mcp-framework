@@ -196,8 +196,35 @@ type ToolHandler interface {
 	Schema() mcp.ToolInputSchema
 	Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error)
 	EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile
+	OutputSchema() *mcp.ToolOutputSchema
 }
 ```
+
+### Scan Mode (--scan)
+
+For fast self-reporting at MCP Bridge startup without requiring env vars or MCP handshake, add scan-mode support to main.go:
+
+```go
+func main() {
+	// Check for --scan flag BEFORE config validation
+	scanMode := false
+	for _, arg := range os.Args[1:] {
+		if arg == "--scan" || arg == "--scan-mode" {
+			scanMode = true
+			break
+		}
+	}
+
+	if scanMode {
+		runScanMode()  // Creates minimal server, outputs JSON, exits
+		return
+	}
+
+	// Normal startup...
+}
+```
+
+This enables the backend to be scanned without env vars, making startup much faster.
 
 Use the constructors in `framework` to build responses:
 
