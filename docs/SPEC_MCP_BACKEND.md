@@ -200,6 +200,19 @@ type ToolHandler interface {
 }
 ```
 
+All five methods are required. Use `framework.BaseTool` to get defaults:
+
+```go
+type MyTool struct {
+    framework.BaseTool  // Provides OutputSchema() default
+    client *Client
+}
+
+func (t *MyTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+    return framework.DefaultEnforcerProfile()  // Or customize
+}
+```
+
 ### Scan Mode (--scan)
 
 For fast self-reporting at MCP Bridge startup without requiring env vars or MCP handshake, add scan-mode support to main.go:
@@ -225,6 +238,121 @@ func main() {
 ```
 
 This enables the backend to be scanned without env vars, making startup much faster.
+
+---
+
+## Migration Guide: Bringing Older Backends Up to Date
+
+If your backend was built against an older version of mcp-framework, follow these steps to update to the current interface:
+
+### Prerequisites
+- mcp-framework v0.2.8 or later
+- Go 1.22+
+
+### Step 1: Update go.mod
+```go
+github.com/karldane/mcp-framework v0.2.8
+```
+
+### Step 2: Add BaseTool to Each Tool
+Embed `framework.BaseTool` in every tool struct to get default implementations:
+
+```go
+type RememberTool struct {
+    framework.BaseTool  // ← Add this line (must be first for embedding)
+    client         QdrantClient
+    cfg            ReadOnlyChecker
+}
+```
+
+### Step 3: Update EnforcerProfile Signature
+Change from old method:
+```go
+func (t *MyTool) GetEnforcerProfile() *framework.EnforcerProfile
+```
+
+To new method with args parameter:
+```go
+func (t *MyTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+    // Return worst-case profile (args == nil) at tools/list time
+    return framework.NewEnforcerProfile(
+        framework.WithRisk(framework.RiskLow),
+        framework.WithImpact(framework.ImpactRead),
+    )
+}
+```
+
+### Step 4: Add OutputSchema Method
+If using BaseTool embedding, this is automatic. Otherwise add:
+```go
+func (t *MyTool) OutputSchema() *mcp.ToolOutputSchema {
+    return nil  // Or define structured output schema
+}
+```
+
+### Step 5: Update Handle Signature
+Change from:
+```go
+func (t *MyTool) Handle(ctx context.Context, args map[string]interface{}) (string, error)
+```
+
+To:
+```go
+func (t *MyTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
+    // Use framework.TextResult() or framework.DataResult() for responses
+    return framework.TextResult("success"), nil
+}
+```
+
+Or use the legacy wrapper in main.go:
+```go
+server.RegisterTool(framework.WrapLegacy(&OldTool{}))
+```
+
+### Step 6: Add --scan Mode (Optional but Recommended)
+Add scan-mode to main.go for fast MCP Bridge startup without env vars:
+
+```go
+func main() {
+    // Check for --scan before expensive config loading
+    scanMode := false
+    for _, arg := range os.Args[1:] {
+        if arg == "--scan" || arg == "--scan-mode" {
+            scanMode = true
+            break
+        }
+    }
+
+    if scanMode {
+        runScanMode() // Register tools, output JSON, exit
+        return
+    }
+    // ... normal startup
+}
+```
+
+### Common Errors
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `does not implement ToolHandler` | Missing method | Embed BaseTool or implement OutputSchema() |
+| `missing EnforcerProfile` | Old interface | Add `EnforcerProfile(args map[string]interface{})` method |
+| `context.Context vs CallContext` | Old Handle signature | Change to `framework.CallContext` |
+| `flag provided but not defined: -scan` | main.go doesn't check --scan | Add scan-mode check before flag.Parse() |
+
+### Testing Your Update
+
+```bash
+# Test --scan mode works (should output JSON):
+go run . --scan
+
+# Test normal startup:
+go run .
+```
+
+### Complete Example
+
+See `example/main.go` in this repository for a working reference implementation.
 
 Use the constructors in `framework` to build responses:
 

@@ -2,14 +2,16 @@
 
 A reusable Go framework for building MCP (Model Context Protocol) servers with built-in safety self-reporting capabilities.
 
-## Overview
+## Documentation
 
-This framework provides a simple, extensible base for creating MCP servers. It handles the MCP protocol details and provides a clean interface for implementing custom tools with integrated safety metadata.
+**For users:** See the `docs/` directory for complete documentation including:
+- [SPEC_MCP_BACKEND.md](docs/SPEC_MCP_BACKEND.md) - Complete specification
+- Migration guide for bringing older backends up to date
 
 ## Installation
 
 ```bash
-go get github.com/karldane/mcp-framework@v0.1.0
+go get github.com/karldane/mcp-framework@v0.2.8
 ```
 
 ## Quick Start
