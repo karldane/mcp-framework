@@ -65,6 +65,21 @@ type Config struct {
 	PIIConfig      *PIIPipelineConfig
 }
 
+// ScanModeOutput is the JSON structure output in scan mode
+type ScanModeOutput struct {
+	Name     string                    `json:"name"`
+	Version  string                    `json:"version"`
+	Tools    []ScanModeTool            `json:"tools"`
+	Error    string                    `json:"error,omitempty"`
+}
+
+// ScanModeTool represents a tool in scan mode output
+type ScanModeTool struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Profile     *EnforcerProfile       `json:"profile,omitempty"`
+}
+
 // Server provides the base MCP server functionality
 type Server struct {
 	name         string
@@ -75,6 +90,7 @@ type Server struct {
 	mcpServer    *server.MCPServer
 	piiEnabled   bool
 	piiPipeline  *PIIPipeline
+	scanMode     bool
 }
 
 // autoFlushingWriter wraps a bufio.Writer and flushes after every write.
@@ -511,6 +527,75 @@ func (s *Server) Start() error {
 	stdout := newAutoFlushingWriter(os.Stdout)
 
 	return stdioServer.Listen(ctx, os.Stdin, stdout)
+}
+
+// SetScanMode enables scan mode which outputs tool definitions as JSON to stdout
+// and exits immediately without starting the MCP stdio server.
+// This allows mcp-bridge to get tool profiles without needing full MCP handshake.
+func (s *Server) SetScanMode(enabled bool) {
+	s.scanMode = enabled
+}
+
+// IsScanMode returns whether scan mode is enabled
+func (s *Server) IsScanMode() bool {
+	return s.scanMode
+}
+
+// RunScanMode outputs tool definitions as JSON and exits.
+// Called by main.go when --scan flag is passed.
+func (s *Server) RunScanMode() error {
+	if s.mcpServer == nil {
+		s.Initialize()
+	}
+
+	output := ScanModeOutput{
+		Name:    s.name,
+		Version: s.version,
+		Tools:   make([]ScanModeTool, 0, len(s.tools)),
+	}
+
+	for _, rt := range s.tools {
+		tool := ScanModeTool{
+			Name:        rt.handler.Name(),
+			Description: rt.handler.Description(),
+			Profile:    rt.handler.EnforcerProfile(nil),
+		}
+		output.Tools = append(output.Tools, tool)
+	}
+
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(output); err != nil {
+		output.Error = fmt.Sprintf("failed to encode scan output: %v", err)
+		encoder.Encode(output)
+		return err
+	}
+
+	return nil
+}
+
+// HandleScanFlag checks for --scan flag and runs scan mode if enabled.
+// Call this at the start of main() after creating the server.
+// Returns true if scan mode was triggered (program will exit).
+func HandleScanFlag(s *Server) bool {
+	// Check both --scan and --scan-mode flags
+	scanEnabled := false
+	for _, arg := range os.Args[1:] {
+		if arg == "--scan" || arg == "--scan-mode" {
+			scanEnabled = true
+			break
+		}
+	}
+
+	if scanEnabled {
+		s.SetScanMode(true)
+		if err := s.RunScanMode(); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	return false
 }
 
 // GetMCPServer returns the underlying MCP server for testing or customization

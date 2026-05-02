@@ -138,7 +138,7 @@ Example usage:
 
 	server := framework.NewServerWithConfig(config)
 
-	// Register tools
+	// Register tools BEFORE HandleScanFlag so they're available in scan mode
 	if err := server.RegisterTool(&HelloTool{}); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to register hello tool: %v\n", err)
 		os.Exit(1)
@@ -147,6 +147,11 @@ Example usage:
 	if err := server.RegisterTool(&CalculatorTool{}); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to register calculator tool: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Handle --scan flag for mcp-bridge startup scanning (must be after RegisterTool)
+	if framework.HandleScanFlag(server) {
+		return // scan mode already exited
 	}
 
 	// Initialize server
