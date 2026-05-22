@@ -65,6 +65,12 @@ func (BaseTool) OutputSchema() *mcp.ToolOutputSchema {
 	return nil
 }
 
+// EnforcerProfile returns the default safety profile.
+// Override this method to provide tool-specific safety metadata.
+func (BaseTool) EnforcerProfile(args map[string]interface{}) *EnforcerProfile {
+	return DefaultEnforcerProfile()
+}
+
 // Config holds server configuration
 type Config struct {
 	Name           string
