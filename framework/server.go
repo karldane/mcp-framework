@@ -102,6 +102,7 @@ type ScanModeToolManifest struct {
 	Description  string                  `json:"description"`
 	InputSchema  *mcp.ToolInputSchema    `json:"inputSchema,omitempty"`
 	OutputSchema *mcp.ToolOutputSchema   `json:"outputSchema,omitempty"`
+	Annotations  *mcp.ToolAnnotation     `json:"annotations,omitempty"`
 	Profile      *EnforcerProfile        `json:"profile,omitempty"`
 }
 
@@ -597,13 +598,27 @@ func (s *Server) RunScanMode() error {
 		for _, rt := range s.tools {
 			inputSchema := rt.handler.Schema()
 			outputSchema := rt.handler.OutputSchema()
+			profile := rt.handler.EnforcerProfile(nil)
+			
+			// Build annotations from profile (same logic as Initialize)
+			var annotations *mcp.ToolAnnotation
+			if profile != nil {
+				boolPtr := func(b bool) *bool { return &b }
+				annotations = &mcp.ToolAnnotation{
+					Title:          rt.handler.Name(),
+					ReadOnlyHint:   boolPtr(profile.ImpactScope == ImpactRead),
+					IdempotentHint: boolPtr(profile.Idempotent),
+					OpenWorldHint:  boolPtr(profile.PIIExposure),
+				}
+			}
 			
 			tool := ScanModeToolManifest{
 				Name:         rt.handler.Name(),
 				Description:  rt.handler.Description(),
 				InputSchema:  &inputSchema,
 				OutputSchema: outputSchema,
-				Profile:      rt.handler.EnforcerProfile(nil),
+				Annotations:  annotations,
+				Profile:      profile,
 			}
 			output.Tools = append(output.Tools, tool)
 		}

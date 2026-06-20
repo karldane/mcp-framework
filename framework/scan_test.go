@@ -158,13 +158,27 @@ func TestRunScanModeManifest(t *testing.T) {
 	for _, rt := range server.tools {
 		inputSchema := rt.handler.Schema()
 		outputSchema := rt.handler.OutputSchema()
+		profile := rt.handler.EnforcerProfile(nil)
+		
+		// Build annotations
+		var annotations *mcp.ToolAnnotation
+		if profile != nil {
+			boolPtr := func(b bool) *bool { return &b }
+			annotations = &mcp.ToolAnnotation{
+				Title:          rt.handler.Name(),
+				ReadOnlyHint:   boolPtr(profile.ImpactScope == ImpactRead),
+				IdempotentHint: boolPtr(profile.Idempotent),
+				OpenWorldHint:  boolPtr(profile.PIIExposure),
+			}
+		}
 		
 		tool := ScanModeToolManifest{
 			Name:         rt.handler.Name(),
 			Description:  rt.handler.Description(),
 			InputSchema:  &inputSchema,
 			OutputSchema: outputSchema,
-			Profile:      rt.handler.EnforcerProfile(nil),
+			Annotations:  annotations,
+			Profile:      profile,
 		}
 		output.Tools = append(output.Tools, tool)
 	}
@@ -230,6 +244,25 @@ func TestRunScanModeManifest(t *testing.T) {
 	outputSchema := toolWithOutput["outputSchema"].(map[string]interface{})
 	if outputSchema["type"] != "object" {
 		t.Error("outputSchema should have type 'object'")
+	}
+	
+	// Both tools should have annotations
+	if _, ok := tool1Map["annotations"]; !ok {
+		t.Error("Manifest format missing 'annotations'")
+	}
+	
+	annotations := tool1Map["annotations"].(map[string]interface{})
+	if annotations["title"] == nil {
+		t.Error("annotations should have 'title'")
+	}
+	if annotations["readOnlyHint"] == nil {
+		t.Error("annotations should have 'readOnlyHint'")
+	}
+	if annotations["idempotentHint"] == nil {
+		t.Error("annotations should have 'idempotentHint'")
+	}
+	if annotations["openWorldHint"] == nil {
+		t.Error("annotations should have 'openWorldHint'")
 	}
 }
 
