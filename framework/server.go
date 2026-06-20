@@ -89,11 +89,28 @@ type ScanModeOutput struct {
 	Error    string                    `json:"error,omitempty"`
 }
 
-// ScanModeTool represents a tool in scan mode output
+// ScanModeTool represents a tool in scan mode output (bridge format)
 type ScanModeTool struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
 	Profile     *EnforcerProfile       `json:"profile,omitempty"`
+}
+
+// ScanModeToolManifest represents a tool in manifest format with full schemas
+type ScanModeToolManifest struct {
+	Name         string                  `json:"name"`
+	Description  string                  `json:"description"`
+	InputSchema  *mcp.ToolInputSchema    `json:"inputSchema,omitempty"`
+	OutputSchema *mcp.ToolOutputSchema   `json:"outputSchema,omitempty"`
+	Profile      *EnforcerProfile        `json:"profile,omitempty"`
+}
+
+// ScanModeOutputManifest is the JSON structure output in manifest scan mode
+type ScanModeOutputManifest struct {
+	Name     string                     `json:"name"`
+	Version  string                     `json:"version"`
+	Tools    []ScanModeToolManifest     `json:"tools"`
+	Error    string                     `json:"error,omitempty"`
 }
 
 // Server provides the base MCP server functionality
@@ -107,6 +124,7 @@ type Server struct {
 	piiEnabled   bool
 	piiPipeline  *PIIPipeline
 	scanMode     bool
+	scanFormat   string // "bridge" (default) or "manifest"
 }
 
 // autoFlushingWriter wraps a bufio.Writer and flushes after every write.
@@ -559,11 +577,46 @@ func (s *Server) IsScanMode() bool {
 
 // RunScanMode outputs tool definitions as JSON and exits.
 // Called by main.go when --scan flag is passed.
+// Format depends on s.scanFormat: "bridge" (default) or "manifest".
 func (s *Server) RunScanMode() error {
 	if s.mcpServer == nil {
 		s.Initialize()
 	}
 
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+
+	// Use manifest format if requested
+	if s.scanFormat == "manifest" {
+		output := ScanModeOutputManifest{
+			Name:    s.name,
+			Version: s.version,
+			Tools:   make([]ScanModeToolManifest, 0, len(s.tools)),
+		}
+
+		for _, rt := range s.tools {
+			inputSchema := rt.handler.Schema()
+			outputSchema := rt.handler.OutputSchema()
+			
+			tool := ScanModeToolManifest{
+				Name:         rt.handler.Name(),
+				Description:  rt.handler.Description(),
+				InputSchema:  &inputSchema,
+				OutputSchema: outputSchema,
+				Profile:      rt.handler.EnforcerProfile(nil),
+			}
+			output.Tools = append(output.Tools, tool)
+		}
+
+		if err := encoder.Encode(output); err != nil {
+			output.Error = fmt.Sprintf("failed to encode scan output: %v", err)
+			encoder.Encode(output)
+			return err
+		}
+		return nil
+	}
+
+	// Default bridge format
 	output := ScanModeOutput{
 		Name:    s.name,
 		Version: s.version,
@@ -574,13 +627,11 @@ func (s *Server) RunScanMode() error {
 		tool := ScanModeTool{
 			Name:        rt.handler.Name(),
 			Description: rt.handler.Description(),
-			Profile:    rt.handler.EnforcerProfile(nil),
+			Profile:     rt.handler.EnforcerProfile(nil),
 		}
 		output.Tools = append(output.Tools, tool)
 	}
 
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(output); err != nil {
 		output.Error = fmt.Sprintf("failed to encode scan output: %v", err)
 		encoder.Encode(output)
@@ -591,19 +642,30 @@ func (s *Server) RunScanMode() error {
 }
 
 // HandleScanFlag checks for --scan flag and runs scan mode if enabled.
+// Supports --scan-format=bridge (default) or --scan-format=manifest.
 // Call this at the start of main() after creating the server.
 // Returns true if scan mode was triggered (program will exit).
 func HandleScanFlag(s *Server) bool {
 	// Check both --scan and --scan-mode flags
 	scanEnabled := false
-	for _, arg := range os.Args[1:] {
+	scanFormat := "bridge" // default
+	
+	for i, arg := range os.Args[1:] {
 		if arg == "--scan" || arg == "--scan-mode" {
 			scanEnabled = true
-			break
+		}
+		// Check for --scan-format=value
+		if strings.HasPrefix(arg, "--scan-format=") {
+			scanFormat = strings.TrimPrefix(arg, "--scan-format=")
+		}
+		// Check for --scan-format value (space-separated)
+		if arg == "--scan-format" && i+1 < len(os.Args[1:]) {
+			scanFormat = os.Args[i+2] // i+2 because os.Args[1:] is offset
 		}
 	}
 
 	if scanEnabled {
+		s.scanFormat = scanFormat
 		s.SetScanMode(true)
 		if err := s.RunScanMode(); err != nil {
 			os.Exit(1)
