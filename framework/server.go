@@ -331,6 +331,7 @@ func (s *Server) Initialize() {
 
 		tool := mcp.Tool{
 			Name:        handler.Name(),
+			Title:       handler.Title(),
 			Description: handler.Description(),
 			InputSchema: handler.Schema(),
 			Annotations: annotations,
