@@ -104,6 +104,7 @@ type mockToolHandlerWithTypedResult struct {
 
 func (m *mockToolHandlerWithTypedResult) Name() string                { return m.name }
 func (m *mockToolHandlerWithTypedResult) Description() string         { return m.description }
+func (m *mockToolHandlerWithTypedResult) Title() string               { return "" }
 func (m *mockToolHandlerWithTypedResult) Schema() mcp.ToolInputSchema { return m.schema }
 func (m *mockToolHandlerWithTypedResult) Handle(ctx CallContext, args map[string]interface{}) (ToolResult, error) {
 	if m.err != nil {

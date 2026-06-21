@@ -48,6 +48,10 @@ func (t *HelloTool) OutputSchema() *mcp.ToolOutputSchema {
 	return nil
 }
 
+func (t *HelloTool) Title() string {
+	return ""
+}
+
 // CalculatorTool demonstrates a more complex example
 type CalculatorTool struct{}
 
@@ -116,6 +120,10 @@ func (t *CalculatorTool) EnforcerProfile(args map[string]interface{}) *framework
 
 func (t *CalculatorTool) OutputSchema() *mcp.ToolOutputSchema {
 	return nil
+}
+
+func (t *CalculatorTool) Title() string {
+	return ""
 }
 
 func main() {

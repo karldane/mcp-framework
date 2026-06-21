@@ -45,6 +45,10 @@ func (m *MockToolHandler) Description() string {
 	return m.description
 }
 
+func (m *MockToolHandler) Title() string {
+	return ""
+}
+
 func (m *MockToolHandler) Schema() mcp.ToolInputSchema {
 	return m.schema
 }

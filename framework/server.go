@@ -40,6 +40,10 @@ type ToolHandler interface {
 	// Schema returns the JSON schema for tool parameters
 	Schema() mcp.ToolInputSchema
 
+	// Title returns an optional human-readable display name for the tool.
+	// This is used by clients for UI display. If empty, clients fall back to Name().
+	Title() string
+
 	// OutputSchema returns the JSON schema for tool output, or nil if not defined.
 	// When non-nil, the server will include outputSchema in the tool definition.
 	OutputSchema() *mcp.ToolOutputSchema
@@ -58,6 +62,12 @@ type ToolHandler interface {
 // BaseTool provides default implementations for optional methods.
 // Embed this struct in your tool to get default no-op implementations.
 type BaseTool struct{}
+
+// Title returns empty string (no custom title).
+// Override this method to provide a human-readable display name.
+func (BaseTool) Title() string {
+	return ""
+}
 
 // OutputSchema returns nil (no output schema defined).
 // Override this method if your tool returns structured data.
@@ -99,6 +109,7 @@ type ScanModeTool struct {
 // ScanModeToolManifest represents a tool in manifest format with full schemas
 type ScanModeToolManifest struct {
 	Name         string                  `json:"name"`
+	Title        string                  `json:"title,omitempty"`
 	Description  string                  `json:"description"`
 	InputSchema  *mcp.ToolInputSchema    `json:"inputSchema,omitempty"`
 	OutputSchema *mcp.ToolOutputSchema   `json:"outputSchema,omitempty"`
@@ -304,14 +315,14 @@ func (s *Server) Initialize() {
 		var annotations mcp.ToolAnnotation
 		if profile != nil {
 			annotations = mcp.ToolAnnotation{
-				Title:          handler.Name(),
+				Title:          handler.Title(),
 				ReadOnlyHint:   boolPtr(profile.ImpactScope == ImpactRead),
 				IdempotentHint: boolPtr(profile.Idempotent),
 				OpenWorldHint:  boolPtr(profile.PIIExposure),
 			}
 		} else {
 			annotations = mcp.ToolAnnotation{
-				Title:          handler.Name(),
+				Title:          handler.Title(),
 				ReadOnlyHint:   boolPtr(true),
 				IdempotentHint: boolPtr(true),
 				OpenWorldHint:  boolPtr(false),
@@ -599,13 +610,14 @@ func (s *Server) RunScanMode() error {
 			inputSchema := rt.handler.Schema()
 			outputSchema := rt.handler.OutputSchema()
 			profile := rt.handler.EnforcerProfile(nil)
+			title := rt.handler.Title()
 			
 			// Build annotations from profile (same logic as Initialize)
 			var annotations *mcp.ToolAnnotation
 			if profile != nil {
 				boolPtr := func(b bool) *bool { return &b }
 				annotations = &mcp.ToolAnnotation{
-					Title:          rt.handler.Name(),
+					Title:          title,
 					ReadOnlyHint:   boolPtr(profile.ImpactScope == ImpactRead),
 					IdempotentHint: boolPtr(profile.Idempotent),
 					OpenWorldHint:  boolPtr(profile.PIIExposure),
@@ -614,6 +626,7 @@ func (s *Server) RunScanMode() error {
 			
 			tool := ScanModeToolManifest{
 				Name:         rt.handler.Name(),
+				Title:        title,
 				Description:  rt.handler.Description(),
 				InputSchema:  &inputSchema,
 				OutputSchema: outputSchema,

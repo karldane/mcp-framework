@@ -47,6 +47,10 @@ func (l *legacyWrapper) OutputSchema() *mcp.ToolOutputSchema {
 	return nil
 }
 
+func (l *legacyWrapper) Title() string {
+	return ""
+}
+
 func (l *legacyWrapper) Handle(ctx CallContext, args map[string]interface{}) (ToolResult, error) {
 	text, err := l.inner.Handle(ctx.Context, args)
 	if err != nil {
