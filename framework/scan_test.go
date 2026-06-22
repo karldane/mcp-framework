@@ -165,10 +165,11 @@ func TestRunScanModeManifest(t *testing.T) {
 		if profile != nil {
 			boolPtr := func(b bool) *bool { return &b }
 			annotations = &mcp.ToolAnnotation{
-				Title:          rt.handler.Name(),
-				ReadOnlyHint:   boolPtr(profile.ImpactScope == ImpactRead),
-				IdempotentHint: boolPtr(profile.Idempotent),
-				OpenWorldHint:  boolPtr(profile.PIIExposure),
+				Title:           rt.handler.Name(),
+				ReadOnlyHint:    boolPtr(profile.ImpactScope == ImpactRead),
+				DestructiveHint: boolPtr(profile.ImpactScope == ImpactDelete),
+				IdempotentHint:  boolPtr(profile.Idempotent),
+				OpenWorldHint:   boolPtr(profile.PIIExposure),
 			}
 		}
 		

@@ -315,17 +315,19 @@ func (s *Server) Initialize() {
 		var annotations mcp.ToolAnnotation
 		if profile != nil {
 			annotations = mcp.ToolAnnotation{
-				Title:          handler.Title(),
-				ReadOnlyHint:   boolPtr(profile.ImpactScope == ImpactRead),
-				IdempotentHint: boolPtr(profile.Idempotent),
-				OpenWorldHint:  boolPtr(profile.PIIExposure),
+				Title:           handler.Title(),
+				ReadOnlyHint:    boolPtr(profile.ImpactScope == ImpactRead),
+				DestructiveHint: boolPtr(profile.ImpactScope == ImpactDelete),
+				IdempotentHint:  boolPtr(profile.Idempotent),
+				OpenWorldHint:   boolPtr(profile.PIIExposure),
 			}
 		} else {
 			annotations = mcp.ToolAnnotation{
-				Title:          handler.Title(),
-				ReadOnlyHint:   boolPtr(true),
-				IdempotentHint: boolPtr(true),
-				OpenWorldHint:  boolPtr(false),
+				Title:           handler.Title(),
+				ReadOnlyHint:    boolPtr(true),
+				DestructiveHint: boolPtr(false),
+				IdempotentHint:  boolPtr(true),
+				OpenWorldHint:   boolPtr(false),
 			}
 		}
 
@@ -618,10 +620,11 @@ func (s *Server) RunScanMode() error {
 			if profile != nil {
 				boolPtr := func(b bool) *bool { return &b }
 				annotations = &mcp.ToolAnnotation{
-					Title:          title,
-					ReadOnlyHint:   boolPtr(profile.ImpactScope == ImpactRead),
-					IdempotentHint: boolPtr(profile.Idempotent),
-					OpenWorldHint:  boolPtr(profile.PIIExposure),
+					Title:           title,
+					ReadOnlyHint:    boolPtr(profile.ImpactScope == ImpactRead),
+					DestructiveHint: boolPtr(profile.ImpactScope == ImpactDelete),
+					IdempotentHint:  boolPtr(profile.Idempotent),
+					OpenWorldHint:   boolPtr(profile.PIIExposure),
 				}
 			}
 			
